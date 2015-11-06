@@ -1,3 +1,11 @@
+bin/*
+obj/*
+*.layout
+*.depend
+*.make
+*.workspace
+*.rc
+
 # Compiled Object files
 *.slo
 *.lo
