@@ -4,7 +4,6 @@ obj/*
 *.depend
 *.make
 *.workspace
-*.rc
 
 # Compiled Object files
 *.slo
