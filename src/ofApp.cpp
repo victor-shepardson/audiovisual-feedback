@@ -28,16 +28,28 @@ void ofApp::setup(){
 	gui.setup(params);
 	sync.setup((ofParameterGroup&)gui.getParameter(),6666,"localhost",6667);
 
-    float scale = 1.;
+    oversample_waveform = 2;
+    undersample_terrain = 2;
 
-    bool fs = false;
-    int movieWidth = ofGetScreenWidth();
-    int movieHeight = ofGetScreenHeight();
-    if(!fs){ movieWidth=400; movieHeight=256; }
-    ofSetFullscreen(fs);
-    ofSetWindowShape(movieWidth, movieHeight);
-    movieWidth*=scale;
-    movieHeight*=scale;
+    float oversample_all = 1;
+    fullscreen = false;
+    if(fullscreen){
+        window_width = ofGetScreenWidth();
+        window_height = ofGetScreenHeight();
+    }
+    else{
+        window_width = 400;
+        window_height = 256;
+    }
+
+    realtime_width = window_width*oversample_all;
+    realtime_height = window_height*oversample_all;
+
+    render_width = 1920*oversample_all;
+    render_height = 1080*oversample_all;
+
+    ofSetFullscreen(fullscreen);
+    ofSetWindowShape(window_width, window_height);
 
     ofEnableDataPath();
     ofDisableArbTex();
@@ -54,8 +66,8 @@ void ofApp::setup(){
     shader_test.load(ofToDataPath("../../src/shader/test"));
 
     fbo_params = ofFbo::Settings(); //needs to come after the ofDisable* above
-    fbo_params.width = movieWidth;
-    fbo_params.height = movieHeight;
+    fbo_params.width = realtime_width;
+    fbo_params.height = realtime_height;
     fbo_params.internalformat = GL_RGB32F;
     fbo_params.useDepth = false;
     fbo_params.useStencil = false;
@@ -69,9 +81,6 @@ void ofApp::setup(){
     frame = 0;
 
     disp_mode = 0;
-
-    oversample_waveform = 2;
-    undersample_terrain = 2;
 
     allocateFbos();
 
@@ -96,7 +105,7 @@ void ofApp::setup(){
     if(use_camera){
         camera.setVerbose(true);
         camera.listDevices();
-        camera.initGrabber(movieWidth, movieHeight);
+        camera.initGrabber(render_width, render_height);
     }
     printf("setup complete\n");
 }
@@ -124,6 +133,8 @@ void ofApp::allocateFbos(){
     display_fbo->allocate(fbo_params);
     scratch_fbo = new ofFbo();
     scratch_fbo->allocate(fbo_params);
+    render_fbo = new ofFbo();
+    render_fbo->allocate(fbo_params);
 
     ofFbo::Settings agent_fbo_params = fbo_params;
     //agent_fbo_params.numSamples = oversample_waveform;
@@ -358,17 +369,27 @@ void ofApp::draw(){
         string timestamp = ofGetTimestampString();
 
         //save frame to disk
+        render_fbo->begin();
+        display_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
+        render_fbo->end();
+        render_fbo->readToPixels(pix);
         stringstream feedback_fname;
         feedback_fname<<cur_save_dir.path()<<ofToDataPath("/feedback-")<<frame<<".png";
         ofImage(pix).saveImage(feedback_fname.str());
 
-        agent_fbo->readToPixels(pix);
+        render_fbo->begin();
+        agent_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
+        render_fbo->end();
+        render_fbo->readToPixels(pix);
         stringstream waveform_fname;
         waveform_fname<<cur_save_dir.path()<<ofToDataPath("/waveform-")<<frame<<".png";
         ofImage(pix).saveImage(waveform_fname.str());
 
         if(use_camera){
-            camera.getTextureReference().readToPixels(pix);
+            render_fbo->begin();
+            camera.draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
+            render_fbo->end();
+            render_fbo->readToPixels(pix);
             stringstream camera_fname;
             camera_fname<<cur_save_dir.path()<<ofToDataPath("/camera-")<<frame<<".png";
             ofImage(pix).saveImage(camera_fname.str());
@@ -431,6 +452,9 @@ void ofApp::toggleRenderMode(){
 
 void ofApp::beginRenderMode(){
     cout<<"render mode"<<endl;
+
+    setResolution(render_width, render_height);
+
     vwt->setAudioDelay(1./frame_rate + 1./sample_rate);
     //open a new wav file and write header
     audio_file_size = 0;
@@ -459,6 +483,9 @@ void ofApp::beginRenderMode(){
 
 void ofApp::endRenderMode(){
     cout<<"realtime mode"<<endl;
+
+    setResolution(realtime_width, realtime_height);
+
     vwt->setAudioDelay(audio_delay);
     //write size of current wav file and close
     union{
@@ -479,6 +506,10 @@ void ofApp::keyPressed(int key){
     if(key=='d'){
         disp_mode = ofWrap(disp_mode+1, 0, 3);
         cout<<disp_mode<<endl;
+    }
+    if(key=='f'){
+        fullscreen = !fullscreen;
+        ofSetFullscreen(fullscreen);
     }
     if(key=='h'){
         usage();
@@ -515,6 +546,7 @@ void ofApp::keyPressed(int key){
 void ofApp::usage(){
     cout<<
         "d - change display mode (0=feedback, 1=waveform, 2=camera"<<endl<<
+        "f - toggle fullscreen"<<endl<<
         "h - print this message"<<endl<<
         "m - toggle render mode"<<endl<<
         "n - reinitialize FBOs (for testing purposes)"<<endl<<

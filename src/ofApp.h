@@ -77,16 +77,18 @@ class ofApp : public ofBaseApp{
         ofFbo::Settings fbo_params;
 
         vector<ofFbo> k_fbos, aux_fbos;
-        ofFbo *y_fbo, *agent_fbo, *display_fbo, *scratch_fbo, *readback_fbo;
+        ofFbo *y_fbo, *agent_fbo, *display_fbo, *scratch_fbo, *readback_fbo, *render_fbo;
         float frame;
         ofShader shader_rkupdate, shader_rkderivative, shader_display, shader_blur, shader_grad, shader_test;
 
         int disp_mode, channels, audio_file_size, oversample_waveform, undersample_terrain;
 
+        int window_width, window_height, render_width, render_height, realtime_width, realtime_height;
+
         double sample_rate, frame_rate, audio_delay;
 
         bool drawing, //false in setup, true once draw loop begins
-            realtime, use_camera;
+            realtime, use_camera, fullscreen;
 
         ofVideoGrabber camera;
 
