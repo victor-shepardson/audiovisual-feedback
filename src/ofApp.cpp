@@ -8,9 +8,11 @@ void ofApp::setup(){
 	params.add(target_mix.set("target_mix",.1));
 	params.add(time_scale.set("time_scale",.2));
 	params.add(rot.set("rot",.66));
+	params.add(blur_size.set("blur_size",2));
 	params.add(bound_gauss.set("bound_gauss",3));
 	params.add(bound_clip.set("bound_clip",1.5));
 	params.add(seed.set("seed",0));
+	params.add(warp.set("warp",0));
 	params.add(agent_rate.set("agent_rate",30.));
 	params.add(momentum_time.set("momentum_time",.00003));
 	params.add(path_jitter.set("path_jitter", 0));
@@ -28,6 +30,9 @@ void ofApp::setup(){
 	gui.setup(params);
 	sync.setup((ofParameterGroup&)gui.getParameter(),6666,"localhost",6667);
 
+    realtime = true;
+    use_camera = false;
+
     oversample_waveform = 2;
     undersample_terrain = 2;
 
@@ -38,8 +43,8 @@ void ofApp::setup(){
         window_height = ofGetScreenHeight();
     }
     else{
-        window_width = 400;
-        window_height = 256;
+        window_width = 960;
+        window_height = 540;
     }
 
     realtime_width = window_width*oversample_all;
@@ -74,9 +79,6 @@ void ofApp::setup(){
     fbo_params.wrapModeHorizontal = GL_REPEAT;
     fbo_params.wrapModeVertical = GL_REPEAT;
     fbo_params.numSamples = 0;
-
-    realtime = true;
-    use_camera = false;
 
     frame = 0;
 
@@ -217,19 +219,20 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     int h = y.getHeight();
 
     //convolution pass using aux_fbos[0]
-/*    aux_fbos[0].begin();
-    float blur_size = 2;
-    shader_blur.begin();
-    shader_blur.setUniformTexture("state", y.getTextureReference(),0);
-    shader_blur.setUniform2i("size", w, h);
-    shader_blur.setUniform2f("dir",0,blur_size);
-    ofRect(0, 0, w, h);
-    shader_blur.setUniformTexture("state", aux_fbos[0].getTextureReference(),0);
-    shader_blur.setUniform2f("dir",blur_size,0);
-    ofRect(0, 0, w, h);
-    shader_blur.end();
-    aux_fbos[0].end();
-*/
+    if(!use_camera){
+        aux_fbos[0].begin();
+        shader_blur.begin();
+        shader_blur.setUniformTexture("state", y.getTextureReference(),0);
+        shader_blur.setUniform2i("size", w, h);
+        shader_blur.setUniform2f("dir",0,blur_size);
+        ofRect(0, 0, w, h);
+        shader_blur.setUniformTexture("state", aux_fbos[0].getTextureReference(),0);
+        shader_blur.setUniform2f("dir",blur_size,0);
+        ofRect(0, 0, w, h);
+        shader_blur.end();
+        aux_fbos[0].end();
+    }
+
     //horizontal and vertical gradient passes
     aux_fbos[1].begin();
     shader_grad.begin();
@@ -248,12 +251,17 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     shader_grad.end();
     aux_fbos[2].end();
 
+    ofTexture * blur_tex;
+    if(use_camera)
+        blur_tex = &camera.getTextureReference();
+    else
+        blur_tex = &aux_fbos[0].getTextureReference();
+
     yprime.begin();
     shader_rkderivative.begin();
     shader_rkderivative.setUniform1f("t",t);
     shader_rkderivative.setUniformTexture("y", y.getTextureReference(),0);
-    if(use_camera)
-        shader_rkderivative.setUniformTexture("blur", camera.getTextureReference(),1);
+    shader_rkderivative.setUniformTexture("blur", *blur_tex,1);
     shader_rkderivative.setUniformTexture("xgrad", aux_fbos[1].getTextureReference(),2);
     shader_rkderivative.setUniformTexture("ygrad", aux_fbos[2].getTextureReference(),3);
     shader_rkderivative.setUniformTexture("agents", agent_fbo->getTextureReference(),4);
@@ -263,6 +271,7 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     shader_rkderivative.setUniform1f("target_mix", target_mix);
     shader_rkderivative.setUniform1f("time_scale", time_scale);
     shader_rkderivative.setUniform1f("rot", rot);
+    shader_rkderivative.setUniform1f("warp", warp);
     shader_rkderivative.setUniform1f("bound_gauss", bound_gauss);
     shader_rkderivative.setUniform1f("bound_clip", bound_clip);
     shader_rkderivative.setUniformMatrix4f("color_proj", color_proj);
@@ -369,15 +378,17 @@ void ofApp::draw(){
         string timestamp = ofGetTimestampString();
 
         //save frame to disk
-        render_fbo->begin();
-        display_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
-        render_fbo->end();
-        render_fbo->readToPixels(pix);
+        //render_fbo->begin();
+        //display_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
+        //render_fbo->end();
+        ofImage img;
+        img.allocate(display_fbo->getWidth(), display_fbo->getHeight(), OF_IMAGE_COLOR);
+        display_fbo->readToPixels(img.getPixelsRef());
         stringstream feedback_fname;
         feedback_fname<<cur_save_dir.path()<<ofToDataPath("/feedback-")<<frame<<".png";
-        ofImage(pix).saveImage(feedback_fname.str());
+        img.saveImage(feedback_fname.str());
 
-        render_fbo->begin();
+        /*render_fbo->begin();
         agent_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
         render_fbo->end();
         render_fbo->readToPixels(pix);
@@ -393,7 +404,7 @@ void ofApp::draw(){
             stringstream camera_fname;
             camera_fname<<cur_save_dir.path()<<ofToDataPath("/camera-")<<frame<<".png";
             ofImage(pix).saveImage(camera_fname.str());
-        }
+        }*/
 
     }
 

@@ -61,6 +61,8 @@ class ofApp : public ofBaseApp{
         ofParameter<float> bound_gauss;
         ofParameter<float> bound_clip;
         ofParameter<float> rot;
+        ofParameter<float> warp;
+        ofParameter<float> blur_size;
         ofParameter<float> agent_rate;
         ofParameter<float> momentum_time;
         ofParameter<float> path_jitter;
