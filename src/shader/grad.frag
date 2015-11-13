@@ -20,7 +20,10 @@ vec3 sample(in vec2 p){
 vec3 grad(){
 	vec2 p = gl_FragCoord.xy;
 	vec2 d = dir/length(dir);
-	return .5*(sample(p+d) - sample(p-d));
+	vec3 above = sample(p+d);
+	vec3 below = sample(p-d);
+	vec3 ret = .5*(above-below);
+	return ret;
 }
 
 void main() {

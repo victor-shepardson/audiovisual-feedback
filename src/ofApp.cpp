@@ -13,6 +13,7 @@ void ofApp::setup(){
 	params.add(bound_clip.set("bound_clip",1.5));
 	params.add(seed.set("seed",0));
 	params.add(warp.set("warp",0));
+	params.add(zoom.set("zoom",0));
 	params.add(agent_rate.set("agent_rate",30.));
 	params.add(momentum_time.set("momentum_time",.00003));
 	params.add(path_jitter.set("path_jitter", 0));
@@ -30,21 +31,23 @@ void ofApp::setup(){
 	gui.setup(params);
 	sync.setup((ofParameterGroup&)gui.getParameter(),6666,"localhost",6667);
 
+    mute = true;
+
     realtime = true;
     use_camera = false;
 
     oversample_waveform = 2;
     undersample_terrain = 2;
 
-    float oversample_all = 1;
+    float oversample_all = 1.;
     fullscreen = false;
     if(fullscreen){
         window_width = ofGetScreenWidth();
         window_height = ofGetScreenHeight();
     }
     else{
-        window_width = 960;
-        window_height = 540;
+        window_width = 1920/4;
+        window_height = 1080/4;
     }
 
     realtime_width = window_width*oversample_all;
@@ -220,33 +223,35 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
 
     //convolution pass using aux_fbos[0]
     if(!use_camera){
-        aux_fbos[0].begin();
+        aux_fbos[1].begin();
         shader_blur.begin();
         shader_blur.setUniformTexture("state", y.getTextureReference(),0);
         shader_blur.setUniform2i("size", w, h);
         shader_blur.setUniform2f("dir",0,blur_size);
         ofRect(0, 0, w, h);
-        shader_blur.setUniformTexture("state", aux_fbos[0].getTextureReference(),0);
+        aux_fbos[1].end();
+        aux_fbos[0].begin();
+        shader_blur.setUniformTexture("state", aux_fbos[1].getTextureReference(),0);
         shader_blur.setUniform2f("dir",blur_size,0);
         ofRect(0, 0, w, h);
         shader_blur.end();
         aux_fbos[0].end();
     }
 
+    ofTexture * grad_tex;
+    if(use_camera) grad_tex = &camera.getTextureReference();
+    else grad_tex = &aux_fbos[0].getTextureReference();
+
     //horizontal and vertical gradient passes
     aux_fbos[1].begin();
     shader_grad.begin();
-    shader_grad.setUniformTexture("state", y.getTextureReference(),0);
+    shader_grad.setUniformTexture("state", *grad_tex,0);
     shader_grad.setUniform2f("dir", 1, 0);
     shader_grad.setUniform2i("size",w,h);
     ofRect(0,0,w,h);
-    //shader_grad.end();
     aux_fbos[1].end();
     aux_fbos[2].begin();
-    //shader_grad.begin();
-    //shader_grad.setUniformTexture("state", y.getTextureReference(),0);
     shader_grad.setUniform2f("dir", 0, 1);
-    //shader_grad.setUniform2i("size",w,h);
     ofRect(0,0,w,h);
     shader_grad.end();
     aux_fbos[2].end();
@@ -272,6 +277,7 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     shader_rkderivative.setUniform1f("time_scale", time_scale);
     shader_rkderivative.setUniform1f("rot", rot);
     shader_rkderivative.setUniform1f("warp", warp);
+    shader_rkderivative.setUniform1f("zoom", zoom);
     shader_rkderivative.setUniform1f("bound_gauss", bound_gauss);
     shader_rkderivative.setUniform1f("bound_clip", bound_clip);
     shader_rkderivative.setUniformMatrix4f("color_proj", color_proj);
@@ -297,7 +303,12 @@ void ofApp::rungeKutta(float t, float dt, ofFbo &y, vector<ofFbo> &k){
     rkStep(t, .5*dt, y, k[0], k[1]);
     rkStep(t, .5*dt, y, k[1], k[2]);
     rkStep(t, dt, y, k[2], k[3]);
-    rkUpdate(dt, y, k, y); //just compute y in-place for now
+    rkUpdate(dt,y,k,y); //in-place works because the update operation is completely parallel
+    /*rkUpdate(dt, y, k, *scratch_fbo); //use scratch_fbo to prevent races
+    y.begin();
+    scratch_fbo->draw(0,0,y.getWidth(),y.getHeight());
+    y.end();
+    */
 }
 
 void ofApp::update(){
@@ -343,6 +354,7 @@ void ofApp::draw(){
 
     display_fbo->begin();
     shader_display.begin();
+    shader_display.setUniform2i("size", display_fbo->getWidth(), display_fbo->getHeight());
     shader_display.setUniformTexture("state", y_fbo->getTextureReference(),0);
     ofRect(0, 0, display_fbo->getWidth(), display_fbo->getHeight());
     shader_display.end();
@@ -408,15 +420,37 @@ void ofApp::draw(){
 
     }
 
+    int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
     switch(disp_mode){
         case 0:
-            display_fbo->draw(0,0, ofGetWindowWidth(), ofGetWindowHeight());
+            display_fbo->draw(0,0,ww,wh);
             break;
         case 1:
-            agent_fbo->draw(0,0, ofGetWindowWidth(), ofGetWindowHeight());
+            agent_fbo->draw(0,0,ww,wh);
             break;
         case 2:
-            if(use_camera) camera.draw(0,0,ofGetWindowWidth(), ofGetWindowHeight());
+            if(use_camera) camera.draw(0,0,ww,wh);
+            else{
+                shader_display.begin();
+                shader_display.setUniform2i("size",ww,wh);
+                shader_display.setUniformTexture("state", aux_fbos[0].getTextureReference(),0);
+                ofRect(0,0,ww,wh);
+                shader_display.end();
+            }
+            break;
+        case 3:
+            shader_display.begin();
+            shader_display.setUniform2i("size",ww,wh);
+            shader_display.setUniformTexture("state", aux_fbos[1].getTextureReference(),0);
+            ofRect(0,0,ww,wh);
+            shader_display.end();
+            break;
+        case 4:
+            shader_display.begin();
+            shader_display.setUniform2i("size",ww,wh);
+            shader_display.setUniformTexture("state", aux_fbos[2].getTextureReference(),0);
+            ofRect(0,0,ww,wh);
+            shader_display.end();
             break;
     }
 
@@ -514,8 +548,11 @@ void ofApp::endRenderMode(){
 }
 
 void ofApp::keyPressed(int key){
+    if(key=='a'){
+        mute = !mute;
+    }
     if(key=='d'){
-        disp_mode = ofWrap(disp_mode+1, 0, 3);
+        disp_mode = ofWrap(disp_mode+1, 0, 5);
         cout<<disp_mode<<endl;
     }
     if(key=='f'){
@@ -556,6 +593,7 @@ void ofApp::keyPressed(int key){
 
 void ofApp::usage(){
     cout<<
+        "a - audio on/off"<<endl<<
         "d - change display mode (0=feedback, 1=waveform, 2=camera"<<endl<<
         "f - toggle fullscreen"<<endl<<
         "h - print this message"<<endl<<
@@ -585,6 +623,7 @@ void ofApp::dragEvent(ofDragInfo dragInfo){
 }
 
 void ofApp::audioOut(float * output, int bufferSize, int nChannels){
+    if(mute) output=0;
     if(drawing && realtime)
         vwt->audioOut(output, bufferSize, nChannels);
 }

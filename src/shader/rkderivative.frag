@@ -16,6 +16,7 @@ uniform	float rot;
 uniform	float bound_gauss;
 uniform	float bound_clip;
 uniform float warp;
+uniform float zoom;
 
 uniform mat4 color_proj;
 uniform mat4 grad_proj;
@@ -26,8 +27,18 @@ out vec4 outputColor;
 
 vec2 invsize = 1./vec2(size);
 
+float sigmoid(float x){
+	return x/(1.+abs(x));
+}
 vec3 sigmoid(vec3 x){
 	return x/(1.+abs(x));
+}
+
+vec2 color2dir(vec3 c){
+	mat2x3 m;
+	m[0] = vec3(1.,-1.,-1.);
+	m[1] = vec3(-1.,1.,-1.);
+	return 0.57735026919*c*m;
 }
 
 //hsv conversion from lolengine.net: http://lolengine.net/blog/2013/07/27/rgb-to-hsv-in-glsl
@@ -101,7 +112,17 @@ vec3 snake_dumb(in vec2 p, const int n, const float dt, const vec3 chan){
 	for(int i=0; i<n; i++){
 		p+= dt*snake_derivative(p,chan);
 	}
-	return sample(p, blur);//here returning only color at the end point
+	return sample(p, y);//here returning only color at the end point
+}
+vec3 snake_color(in vec2 p, const int n, const float dt){
+	for(int i=0; i<n; i++){
+		p+= dt*color2dir(sample(p, blur));
+	}
+	return sample(p, blur);
+}
+
+vec3 climb(in vec2 p, const int n, const float dt){
+	return snake_dumb(p,n,dt,vec3(1./3.));
 }
 
 /*vec2 snake_derivative(in vec2 p, in vec3 c, out vec3 cprime, const vec3 chan){
@@ -144,8 +165,8 @@ void main() {
 
 	vec2 p = gl_FragCoord.xy;
 	vec3 val_y = texelFetch(y, ivec2(p), 0).rgb;
-	vec3 val_agents = sample(p, agents);
-	//vec3 val_blur = sample(p, blur);
+	vec3 val_agents = sigmoid(sample(p, agents));
+	vec3 val_blur = sample(p, blur);
 
 
 	
@@ -161,71 +182,82 @@ void main() {
 	//ofs.y*=-1.;
 	p += ofs;
 	*/
-	vec3 hsv = rgb2hsv(sample(p,y));
-	vec2 ofs = warp*pol2car(vec2(hsv.y*hsv.z, 2.*PI*hsv.x));
-	p+=ofs;
+	//vec3 hsv = rgb2hsv(sample(p,y));
+	//vec2 ofs = warp*pol2car(vec2(hsv.y*hsv.z, 2.*PI*hsv.x));
+	//vec3 color_blur = b2u(val_blur);
+	//vec2 ofs = warp*color2dir(val_blur);
+//	p+=ofs;
 
-	val_new = sample(p, blur);
+//	val_new = sample(p, blur);
+	//val_new = snake_color(p, 8, warp);
+
+	vec2 ofs = warp*(color2dir(sample(p,blur)));
+	val_new = sample(p+ofs, blur)
+			+ sample(p+3.*ofs, blur)
+			+ sample(p+9.*ofs, blur)
+			+ sample(p+27.*ofs, blur);	
+	val_new/=4.;
 	
+
+	ofs += zoom*normalize(.5*size-p);
+
+	p+=ofs;
 
 	//dynamic snakes
 	//dt of about 2 actually seems best, and small number of steps works fine
-	/*int steps = 8;
-	float dt = 2;
-	mat3 snake_colors; //grad_proj,color_proj,
+	//int steps = 8;
+	//float dt = 1;
+	/*mat3 snake_colors; //grad_proj,color_proj,
 	for(int i=0; i<3; i++)
 		snake_colors[i] = snake_dumb(p,steps,dt, _grad_proj[i]);
 	snake_colors *= _color_proj;
 	for(int i=0; i<3; i++)
 		val_new[i] = snake_colors[i][i];
-*/
+	*/
 	
-	//HSV space normalization
-	//alternatively: increase distance between largest and smallest components;
-	//approach a particular length
-	/*vec3 color_new = b2u(val_new);	
-	color_new = rgb2hsv(color_new);
-	//color_new.x = fract(color_new.x+.15);
-	color_new.y = mix(color_new.y, .9, .1);
-	color_new.z = mix(color_new.z, .1, .1);
-	color_new = hsv2rgb(color_new);
-	val_new = u2b(color_new);*/
+	/*vec3 peak = climb(p,steps,dt);
+	vec3 trough = climb(p,steps,-dt);
 
+	float local_contrast = length(peak-trough)/sqrt(3.);
+	val_new = mix(val_y, val_blur, local_contrast);
+*/
+	int steps = 8;
+	float dt = warp*warp;
+	vec3 local_mean = val_y;
+	int num = 1;
+	//vec3 peak0 = val_y;
+	vec3 peak1 = snake_dumb(p,steps,dt,-local_mean);
+	local_mean = mix(local_mean, peak1, 1./(++num));
+	vec3 peak2 = snake_dumb(p,steps,dt,-local_mean);
+	local_mean = mix(local_mean, peak2, 1./(++num));
+	vec3 peak3 = snake_dumb(p,steps,dt,-local_mean);
+	local_mean = mix(local_mean, peak3, 1./(++num));
+
+	vec3 peaks;
+	peaks.r = length(peak1-local_mean);
+	peaks.g = length(peak2-local_mean);
+	peaks.b = length(peak3-local_mean);
+	peaks = sigmoid(_color_proj*peaks);
+
+	val_new += peak3 + peaks;
+	
+	val_new += val_agents;
 	
 	float mean = dot(val_new, vec3(1./3));
-
-	//float _target_mean = target_mean+val_agents.r;
 
 	val_new = mix(val_new, 
 		(val_new-mean)/(length(val_new-mean)+.0001)*target_sat + target_mean,
 		target_mix);
-
-	val_new += val_agents;//u2b(val_agents);
-	//val_new += .5*(u2b(val_blur)-val_y);
-
-	
-
-	//vec3 sat = val_new - vec3(mean);
-	//sat = normalize(sat)*(target_sat-length(sat)*pow(3.,-.5));
-	//vec3 norm = b2u(val_new)*(target_norm-length(b2u(val_new))*pow(3.,-.5));
-
-	//vec3 blur = (val_blur - val_y);
-
-	//val_new = val_new.gbr;
-
 
 	//approach the new color
 	vec3 d = (val_new - val_y);// + .2*(sat + norm);// + blur;
 
 	//some kind of color rotation
 	d = mix(d,sign(rot)*(d.gbr - d.brg),abs(rot));
-	//float _rot = length(val_agents)/sqrt(3);
+	//float _rot = sigmoid(length(val_agents));
 	//d = mix(d, sign(_rot)*(d.gbr - d.brg), abs(_rot));
 
-	//d += .5*(sat + norm);
-
 	d*= time_scale;
-	//d*= mix(val_agents.r,1.,.1);
 
 	//force derivative to zero at bounds
 	//d*= exp(-val_y*val_y/bound_gauss);

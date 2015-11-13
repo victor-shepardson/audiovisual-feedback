@@ -5,17 +5,22 @@
 #include "ofxOscParameterSync.h"
 #include "ofxVideoWaveTerrain.h"
 
-//wav file writing is janked. why???
+//ok, it turns out you can't magically sample/render to the same texture in an fbo;
+//at least not across blocks computed on the GPU, it looks like. whoops!
+//need a ping-ponging fbo with two textures
+//the main blur is fixed for now, inelegantly
+//agent blur should be wrong but I haven't noticed any artifacts
+//the only direct feedback in the runge-kutta seems ok since it is the update step, which is local to each pixel
 
-//would like to switch between realtime and render modes
-//in realtime mode: asynchronous video+audio, real time audio
-//in render mode: precise number of audio samples per frame (compute audio in draw() and store/stream to disk)
-//should be able to dynamically change resolution
+//why does the blurred state display upside down??
 
-//todo:
-// - move most drawing and audio into auxiliary functions
-// - bring in machinery to save lossless images and audio files (will composite later w/ aftereffects)
-// - put some kind of visual indication of render mode into draw loop
+//should maybe wrap utility stuff like blur and gradient in a class
+
+//should look into writing own shaders for agent drawing instead of relying on blending
+
+//look into kalieidoscoping/symmetries
+
+//apply the snake/color flow process at multiple scales (mutually scaling blur,warp and then average derivatives?)
 
 class ofApp : public ofBaseApp{
 
@@ -61,6 +66,7 @@ class ofApp : public ofBaseApp{
         ofParameter<float> bound_gauss;
         ofParameter<float> bound_clip;
         ofParameter<float> rot;
+        ofParameter<float> zoom;
         ofParameter<float> warp;
         ofParameter<float> blur_size;
         ofParameter<float> agent_rate;
@@ -90,7 +96,7 @@ class ofApp : public ofBaseApp{
         double sample_rate, frame_rate, audio_delay;
 
         bool drawing, //false in setup, true once draw loop begins
-            realtime, use_camera, fullscreen;
+            realtime, use_camera, fullscreen, mute;
 
         ofVideoGrabber camera;
 
