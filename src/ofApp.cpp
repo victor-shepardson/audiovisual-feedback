@@ -5,11 +5,11 @@ void ofApp::setup(){
     params.setName("params");
 	params.add(target_sat.set("target_sat",.7));
 	params.add(target_mean.set("target_mean",-.5));
-	params.add(target_mix.set("target_mix",.1));
+	params.add(target_mix.set("target_mix",.1,0,1));
 	params.add(time_scale.set("time_scale",.2));
 	params.add(rot.set("rot",.66));
 	params.add(blur_size.set("blur_size",2));
-	params.add(bound_gauss.set("bound_gauss",3));
+	params.add(kernel_width.set("kernel_width",3));
 	params.add(bound_clip.set("bound_clip",1.5));
 	params.add(seed.set("seed",0));
 	params.add(warp.set("warp",0));
@@ -66,12 +66,15 @@ void ofApp::setup(){
     //ofDisableAntiAliasing();
     ofSetTextureWrap(GL_REPEAT, GL_REPEAT);
 
-    shader_rkderivative.load(ofToDataPath("../../src/shader/rkderivative"));
+    shader_resample.load(ofToDataPath("../../src/shader/resample"));
     shader_blur.load(ofToDataPath("../../src/shader/blur"));
     shader_rkupdate.load(ofToDataPath("../../src/shader/rkupdate"));
     shader_grad.load(ofToDataPath("../../src/shader/grad"));
     shader_display.load(ofToDataPath("../../src/shader/display"));
-    shader_test.load(ofToDataPath("../../src/shader/test"));
+    //shader_rkderivative.load(ofToDataPath("../../src/shader/rkderivative"));
+    shader_scale_derivative.load(ofToDataPath("../../src/shader/scale_derivative"));
+    shader_post_derivative.load(ofToDataPath("../../src/shader/post_derivative"));
+    //shader_test.load(ofToDataPath("../../src/shader/test"));
 
     fbo_params = ofFbo::Settings(); //needs to come after the ofDisable* above
     fbo_params.width = realtime_width;
@@ -86,6 +89,10 @@ void ofApp::setup(){
     frame = 0;
 
     disp_mode = 0;
+    disp_scale = 0;
+    disp_buf = 0;
+
+    num_scales = 1;
 
     allocateFbos();
 
@@ -96,9 +103,9 @@ void ofApp::setup(){
     initRandom(*y_fbo, 0);
 
     channels = 2;
-    frame_rate = 30;
+    frame_rate = 24;
     sample_rate = 48000;
-    audio_delay = .25;
+    audio_delay = .5;
     int frames_to_keep = 100;
     double time_to_keep = 10;
 
@@ -116,9 +123,9 @@ void ofApp::setup(){
 }
 
 void ofApp::close(){
+    ofSoundStreamClose();
     if(audio_file_size>0)
         endRenderMode();
-    ofSoundStreamClose();
 }
 
 void ofApp::allocateFbos(){
@@ -127,11 +134,37 @@ void ofApp::allocateFbos(){
         fbo.allocate(fbo_params);
         k_fbos.push_back(fbo);
     }
-    for(int i=0; i<3; i++){
+    /*
+    for(int i=0; i<2; i++){
         ofFbo fbo;
         fbo.allocate(fbo_params);
-        aux_fbos.push_back(fbo);
+        grad_fbos.push_back(fbo);
     }
+    for(int i=0; i<4; i++){
+        ofFbo fbo;
+        fbo.allocate(fbo_params);
+        blur_fbos.push_back(fbo);
+    }*/
+
+    ofFbo::Settings y_pyramid_params = fbo_params;
+    y_pyramid_params.numColorbuffers = 3;
+    for(int i=0; i<num_scales; i++){
+        ofFbo fbo;
+        fbo.allocate(y_pyramid_params);
+        y_pyramid.push_back(fbo);
+        y_pyramid_params.width/=2;
+        y_pyramid_params.height/=2;
+    }
+
+    ofFbo::Settings yprime_pyramid_params = fbo_params;
+    for(int i=0; i<num_scales; i++){
+        ofFbo fbo;
+        fbo.allocate(yprime_pyramid_params  );
+        yprime_pyramid.push_back(fbo);
+        yprime_pyramid_params.width/=2;
+        yprime_pyramid_params.height/=2;
+    }
+
     y_fbo = new ofFbo();
     y_fbo->allocate(fbo_params);
     display_fbo = new ofFbo();
@@ -161,7 +194,10 @@ void ofApp::setResolution(int x, int y){
     ofFbo *temp_agent_fbo = agent_fbo;
 
     k_fbos.clear();
-    aux_fbos.clear();
+//    grad_fbos.clear();
+  //  blur_fbos.clear();
+    y_pyramid.clear();
+    yprime_pyramid.clear();
 
     delete scratch_fbo;
     delete display_fbo;
@@ -181,6 +217,60 @@ void ofApp::setResolution(int x, int y){
     temp_agent_fbo->draw(0,0,agent_fbo->getWidth(),agent_fbo->getHeight());
     agent_fbo->end();
     delete temp_agent_fbo;
+}
+void ofApp::resample(ofFbo &src, ofFbo &dest){
+    //resample src to dest with truncated gaussian kernel
+    //supports up to 3 textures per fbo; could be generalized to many with opengl 4 I think
+    int nt = src.getNumTextures();
+    shader_resample.begin();
+    shader_resample.setUniformTexture("src0", src.getTextureReference(0), 0);
+    if(nt>1)
+        shader_resample.setUniformTexture("src1", src.getTextureReference(1), 1);
+    if(nt>2)
+        shader_resample.setUniformTexture("src2", src.getTextureReference(2), 2);
+    shader_resample.setUniform2i("dest_size", dest.getWidth(), dest.getHeight());
+    shader_resample.setUniform1i("num_textures", nt);
+    dest.begin();
+    dest.activateAllDrawBuffers();
+    src.draw(0,0,dest.getWidth(), dest.getHeight());
+    dest.end();
+    shader_resample.end();
+}
+void ofApp::derivativeAtScale(float t, ofFbo &y, ofFbo &yprime, float scale){
+    int w = y.getWidth(), h = y.getHeight();
+    shader_scale_derivative.begin();
+    shader_scale_derivative.setUniform1f("t",t);
+    shader_scale_derivative.setUniformTexture("y", y.getTextureReference(0),0);
+    shader_scale_derivative.setUniformTexture("xgrad", y.getTextureReference(1),1);
+    shader_scale_derivative.setUniformTexture("ygrad", y.getTextureReference(2),2);
+    shader_scale_derivative.setUniform2i("size", w, h);
+    shader_scale_derivative.setUniform1f("scale", scale);
+    shader_scale_derivative.setUniform1f("warp", warp);
+    shader_scale_derivative.setUniform1f("zoom", zoom);
+    yprime.begin();
+    ofRect(0, 0, w, h);
+    yprime.end();
+    shader_scale_derivative.end();
+}
+void ofApp::derivativePost(float t, ofFbo &y, ofFbo &yprime, ofFbo &new_yprime){
+    int w = y.getWidth(), h = y.getHeight();
+    shader_post_derivative.begin();
+    shader_post_derivative.setUniform1f("t",t);
+    shader_post_derivative.setUniformTexture("y", y.getTextureReference(),0);
+    shader_post_derivative.setUniformTexture("yprime", yprime.getTextureReference(),1);
+    shader_post_derivative.setUniformTexture("agents", agent_fbo->getTextureReference(),2);
+    shader_post_derivative.setUniform2i("size", w, h);
+    shader_post_derivative.setUniform1f("time_scale",time_scale);
+    shader_post_derivative.setUniform1f("rot",rot);
+    shader_post_derivative.setUniform1f("bound_clip",bound_clip);
+    shader_post_derivative.setUniform1f("num_scales", num_scales);
+    shader_post_derivative.setUniform1f("target_sat",target_sat);
+    shader_post_derivative.setUniform1f("target_mean",target_mean);
+    shader_post_derivative.setUniform1f("target_mix",target_mix);
+    new_yprime.begin();
+    ofRect(0,0,w,h);
+    new_yprime.end();
+    shader_post_derivative.end();
 }
 
 //get next y from y,dt,k0,k1,k2,k3 and store in new_y
@@ -221,55 +311,109 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     int w = y.getWidth();
     int h = y.getHeight();
 
-    //convolution pass using aux_fbos[0]
+    //construct base of pyramid with gradients
+    y_pyramid[0].begin();
+    y_pyramid[0].setActiveDrawBuffer(0);
+    y.draw(0,0,w,h);
+    y_pyramid[0].end();
+
+    shader_grad.begin();
+    shader_grad.setUniformTexture("state", y_pyramid[0].getTextureReference(0),0);
+    shader_grad.setUniform2i("size", w,h);
+    y_pyramid[0].begin();
+    vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
+    y_pyramid[0].setActiveDrawBuffers(grad_bufs);
+    y.draw(0,0,w,h);
+    y_pyramid[0].end();
+    shader_grad.end();
+
+    //other channels such as gradient could be handled here
+    //by drawing into additional textures of the pyramid base
+    //in that case, resample would handle all textures in an fbo
+
+    //compute pyramid + derivatives of y and accumulate to yprime
+    for(int i=0; i<y_pyramid.size(); i++){
+        float scale = pow(2,i);
+        if(i)
+            resample(y_pyramid[i-1], y_pyramid[i]);
+        derivativeAtScale(t, y_pyramid[i], yprime_pyramid[i], scale);
+        //ofPushStyle();
+        if(i)
+            ofBlendMode(OF_BLENDMODE_ADD);
+        resample(yprime_pyramid[i], yprime);
+        ofBlendMode(OF_BLENDMODE_DISABLED);
+        //ofPopStyle();
+    }
+
+    //further (local) processing of derivative
+    derivativePost(t, y, yprime, yprime);
+
+
+    /*
+
+    //convolution passes
     if(!use_camera){
-        aux_fbos[1].begin();
-        shader_blur.begin();
-        shader_blur.setUniformTexture("state", y.getTextureReference(),0);
-        shader_blur.setUniform2i("size", w, h);
-        shader_blur.setUniform2f("dir",0,blur_size);
-        ofRect(0, 0, w, h);
-        aux_fbos[1].end();
-        aux_fbos[0].begin();
-        shader_blur.setUniformTexture("state", aux_fbos[1].getTextureReference(),0);
-        shader_blur.setUniform2f("dir",blur_size,0);
-        ofRect(0, 0, w, h);
-        shader_blur.end();
-        aux_fbos[0].end();
+        for(int i=0; i<blur_fbos.size(); i++){
+
+            /////////
+            if(i) break;
+            /////////
+
+            float blur_scale;
+            ofTexture * src_tex;
+            if(i){
+                blur_scale = pow(3,i)-pow(3,i-1);
+                src_tex = &blur_fbos[i-1].getTextureReference();
+            }
+            else{
+                blur_scale = 1;
+                src_tex = &y.getTextureReference();
+            }
+            shader_blur.begin();
+            shader_blur.setUniformTexture("state", *src_tex,0);
+            shader_blur.setUniform2i("size", w, h);
+            shader_blur.setUniform2f("dir",0,blur_size*blur_scale);
+            grad_fbos[0].begin(); //inelegantly reusing this as a scratch buffer
+            ofRect(0, 0, w, h);
+            grad_fbos[0].end();
+            shader_blur.setUniformTexture("state", grad_fbos[0].getTextureReference(),0);
+            shader_blur.setUniform2f("dir",blur_size*blur_scale,0);
+            blur_fbos[i].begin();
+            ofRect(0, 0, w, h);
+            blur_fbos[i].end();
+            shader_blur.end();
+        }
     }
 
     ofTexture * grad_tex;
     if(use_camera) grad_tex = &camera.getTextureReference();
-    else grad_tex = &aux_fbos[0].getTextureReference();
+    else grad_tex = &blur_fbos[0].getTextureReference();//&y.getTextureReference();
 
     //horizontal and vertical gradient passes
-    aux_fbos[1].begin();
     shader_grad.begin();
     shader_grad.setUniformTexture("state", *grad_tex,0);
     shader_grad.setUniform2f("dir", 1, 0);
     shader_grad.setUniform2i("size",w,h);
+    grad_fbos[0].begin();
     ofRect(0,0,w,h);
-    aux_fbos[1].end();
-    aux_fbos[2].begin();
+    grad_fbos[0].end();
     shader_grad.setUniform2f("dir", 0, 1);
+    grad_fbos[1].begin();
     ofRect(0,0,w,h);
+    grad_fbos[1].end();
     shader_grad.end();
-    aux_fbos[2].end();
-
-    ofTexture * blur_tex;
-    if(use_camera)
-        blur_tex = &camera.getTextureReference();
-    else
-        blur_tex = &aux_fbos[0].getTextureReference();
 
     yprime.begin();
     shader_rkderivative.begin();
     shader_rkderivative.setUniform1f("t",t);
     shader_rkderivative.setUniformTexture("y", y.getTextureReference(),0);
-    shader_rkderivative.setUniformTexture("blur", *blur_tex,1);
-    shader_rkderivative.setUniformTexture("xgrad", aux_fbos[1].getTextureReference(),2);
-    shader_rkderivative.setUniformTexture("ygrad", aux_fbos[2].getTextureReference(),3);
-    shader_rkderivative.setUniformTexture("agents", agent_fbo->getTextureReference(),4);
+    shader_rkderivative.setUniformTexture("xgrad", grad_fbos[0].getTextureReference(),1);
+    shader_rkderivative.setUniformTexture("ygrad", grad_fbos[1].getTextureReference(),2);
+    shader_rkderivative.setUniformTexture("agents", agent_fbo->getTextureReference(),3);
+    shader_rkderivative.setUniformTexture("blur0", blur_fbos[0].getTextureReference(),4);
+    shader_rkderivative.setUniformTexture("blur1", blur_fbos[1].getTextureReference(),5);
+    shader_rkderivative.setUniformTexture("blur2", blur_fbos[2].getTextureReference(),6);
+    shader_rkderivative.setUniformTexture("blur3", blur_fbos[3].getTextureReference(),7);
     shader_rkderivative.setUniform2i("size", w, h);
     shader_rkderivative.setUniform1f("target_sat", target_sat);
     shader_rkderivative.setUniform1f("target_mean", target_mean);
@@ -285,6 +429,8 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     ofRect(0, 0, w, h);
     shader_rkderivative.end();
     yprime.end();
+
+    */
 }
 
 //compute f(t+dt, y+dt*k) and store in yprime
@@ -431,9 +577,10 @@ void ofApp::draw(){
         case 2:
             if(use_camera) camera.draw(0,0,ww,wh);
             else{
+                resample(yprime_pyramid[disp_scale], *display_fbo);
                 shader_display.begin();
                 shader_display.setUniform2i("size",ww,wh);
-                shader_display.setUniformTexture("state", aux_fbos[0].getTextureReference(),0);
+                shader_display.setUniformTexture("state", display_fbo->getTextureReference(),0);
                 ofRect(0,0,ww,wh);
                 shader_display.end();
             }
@@ -441,17 +588,33 @@ void ofApp::draw(){
         case 3:
             shader_display.begin();
             shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", aux_fbos[1].getTextureReference(),0);
+            shader_display.setUniformTexture("state", k_fbos[0].getTextureReference(),0);
             ofRect(0,0,ww,wh);
             shader_display.end();
             break;
         case 4:
             shader_display.begin();
             shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", aux_fbos[2].getTextureReference(),0);
+            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(1),0);
             ofRect(0,0,ww,wh);
             shader_display.end();
             break;
+        case 5:
+            shader_display.begin();
+            shader_display.setUniform2i("size",ww,wh);
+            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(2),0);
+            ofRect(0,0,ww,wh);
+            shader_display.end();
+            break;
+            /*
+        case 4:
+            shader_display.begin();
+            shader_display.setUniform2i("size",ww,wh);
+            shader_display.setUniformTexture("state", grad_fbos[1].getTextureReference(),0);
+            ofRect(0,0,ww,wh);
+            shader_display.end();
+            break;
+            */
     }
 
     frame++;
@@ -467,9 +630,9 @@ void ofApp::initRandom(ofFbo &target, int seed){
     newState.allocate(w, h, OF_IMAGE_COLOR);
     for(int x=0; x<w; x++){
         for(int y=0; y<h; y++){
-            float r = ofSignedNoise(x+1,y+11,frame,0);
-            float g = ofSignedNoise(x+111,y+1111,frame,.5);
-            float b = ofSignedNoise(x+11111,y+111111,frame,1);
+            float r = ofSignedNoise(x+1,y+11,frame);
+            float g = ofSignedNoise(x+111,y+1111,frame);
+            float b = ofSignedNoise(x+11111,y+111111,frame);
             newState.setColor(x,y,ofFloatColor(r,g,b));
         }
     }
@@ -551,9 +714,13 @@ void ofApp::keyPressed(int key){
     if(key=='a'){
         mute = !mute;
     }
+/*    if(key=='b'){
+        disp_buf = ofWrap(disp_buf+1, 0, 3);
+        cout<<"display buffer: "<<disp_buf<<endl;
+    }*/
     if(key=='d'){
-        disp_mode = ofWrap(disp_mode+1, 0, 5);
-        cout<<disp_mode<<endl;
+        disp_mode = ofWrap(disp_mode+1, 0, 6);
+        cout<<"display mode: "<<disp_mode<<endl;
     }
     if(key=='f'){
         fullscreen = !fullscreen;
@@ -561,6 +728,10 @@ void ofApp::keyPressed(int key){
     }
     if(key=='h'){
         usage();
+    }
+    if(key=='p'){
+        disp_scale = ofWrap(disp_scale+1, 0, num_scales);
+        cout<<"display scale: "<<disp_scale<<endl;
     }
     if(key=='s'){
         ofPixels p;
@@ -572,6 +743,13 @@ void ofApp::keyPressed(int key){
     }
     if(key=='r'){
         initRandom(*y_fbo, seed);
+        vwt->scramble();
+        ofPushStyle();
+        ofSetColor(0,0,0);
+        agent_fbo->begin();
+        ofRect(0,0,agent_fbo->getWidth(),agent_fbo->getHeight());
+        agent_fbo->end();
+        ofPopStyle();
     }
     if(key==']'){
         setResolution(fbo_params.width*2, fbo_params.height*2);
@@ -594,11 +772,13 @@ void ofApp::keyPressed(int key){
 void ofApp::usage(){
     cout<<
         "a - audio on/off"<<endl<<
-        "d - change display mode (0=feedback, 1=waveform, 2=camera"<<endl<<
+       // "b - change display buffer for pyramid"<<endl<<
+        "d - change display mode (0=feedback, 1=waveform, 2=derivative"<<endl<<
         "f - toggle fullscreen"<<endl<<
         "h - print this message"<<endl<<
         "m - toggle render mode"<<endl<<
         "n - reinitialize FBOs (for testing purposes)"<<endl<<
+        "p - change display scale for pyramid"<<endl<<
         "r - randomize video"<<endl<<
         "s - save current frame as png"<<endl<<
         "[ - halve resolution"<<endl<<

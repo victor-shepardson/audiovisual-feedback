@@ -537,9 +537,9 @@
 					"numinlets" : 2,
 					"numoutlets" : 1,
 					"outlettype" : [ "" ],
-					"patching_rect" : [ 11.0, 258.0, 99.0, 22.0 ],
+					"patching_rect" : [ 11.0, 258.0, 95.0, 22.0 ],
 					"style" : "",
-					"text" : "bound_gauss $1"
+					"text" : "kernel_width $1"
 				}
 
 			}
@@ -618,6 +618,10 @@
 , 						{
 							"number" : 17,
 							"data" : [ 5, "obj-35", "flonum", "float", 0.1, 5, "obj-48", "flonum", "float", 1.0, 5, "obj-50", "flonum", "float", 0.2, 5, "obj-52", "flonum", "float", 1.0, 5, "obj-54", "flonum", "float", 10.0, 5, "obj-56", "flonum", "float", -0.5, 5, "obj-2", "number", "int", 70793, 5, "obj-14", "flonum", "float", 0.2, 5, "obj-1", "flonum", "float", 33.0, 5, "obj-11", "flonum", "float", 0.000053, 5, "obj-22", "flonum", "float", 0.000012, 5, "obj-20", "flonum", "float", 10.0, 5, "obj-24", "flonum", "float", 2.0, 5, "obj-5", "flonum", "float", 4.0, 5, "obj-13", "flonum", "float", 100.0 ]
+						}
+, 						{
+							"number" : 24,
+							"data" : [ 5, "obj-35", "flonum", "float", 0.5, 5, "obj-48", "flonum", "float", 0.9, 5, "obj-50", "flonum", "float", 1.0, 5, "obj-52", "flonum", "float", 1.0, 5, "obj-54", "flonum", "float", 10.0, 5, "obj-56", "flonum", "float", -0.2, 5, "obj-2", "number", "int", 70793, 5, "obj-14", "flonum", "float", 0.5, 5, "obj-1", "flonum", "float", 33.0, 5, "obj-11", "flonum", "float", 0.000053, 5, "obj-22", "flonum", "float", 0.000012, 5, "obj-20", "flonum", "float", 30.0, 5, "obj-24", "flonum", "float", 1.5, 5, "obj-5", "flonum", "float", 1.0, 5, "obj-13", "flonum", "float", 1.0, 5, "obj-18", "flonum", "float", 1.0 ]
 						}
  ],
 					"style" : ""

@@ -1,10 +1,14 @@
 #version 150
 
 uniform sampler2D y;
-uniform sampler2D blur;
 uniform sampler2D xgrad;
 uniform sampler2D ygrad;
 uniform sampler2D agents;
+uniform sampler2D blur0;
+uniform sampler2D blur1;
+uniform sampler2D blur2;
+uniform sampler2D blur3;
+
 uniform float t;
 uniform ivec2 size;
 
@@ -36,11 +40,11 @@ vec3 sigmoid(vec3 x){
 
 vec2 color2dir(vec3 c){
 	mat2x3 m;
-	m[0] = vec3(1.,-1.,-1.);
-	m[1] = vec3(-1.,1.,-1.);
-	return 0.57735026919*c*m;
+	m[0] = normalize(vec3(1.,-.5,-.5));
+	m[1] = normalize(vec3(0.,1.,-1.));
+	return c*m;
 }
-
+/*
 //hsv conversion from lolengine.net: http://lolengine.net/blog/2013/07/27/rgb-to-hsv-in-glsl
 vec3 rgb2hsv(vec3 c)
 {
@@ -58,7 +62,7 @@ vec3 hsv2rgb(vec3 c)
     vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
-
+*/
 vec2 pol2car(vec2 pol){
 	return pol.x*vec2(cos(pol.y), sin(pol.y));
 }
@@ -108,21 +112,25 @@ vec3 snake_rk(in vec2 p, const int n, const float dt, const vec3 chan){
 	}
 	return sample(p, y);//here returning only color at the end point
 }
-vec3 snake_dumb(in vec2 p, const int n, const float dt, const vec3 chan){
+vec3 snake_dumb(sampler2D s, inout vec2 p, const int n, const float dt, const vec3 chan){
 	for(int i=0; i<n; i++){
-		p+= dt*snake_derivative(p,chan);
+		p+= dt*snake_derivative(p, chan);
 	}
-	return sample(p, y);//here returning only color at the end point
+	return sample(p, s);//here returning only color at the end point
 }
 vec3 snake_color(in vec2 p, const int n, const float dt){
 	for(int i=0; i<n; i++){
-		p+= dt*color2dir(sample(p, blur));
+		p+= dt*color2dir(sample(p, y));
 	}
-	return sample(p, blur);
+	return sample(p, y);
 }
-
-vec3 climb(in vec2 p, const int n, const float dt){
-	return snake_dumb(p,n,dt,vec3(1./3.));
+vec3 snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
+	vec3 mean = vec3(0.);
+	for(int i=1; i<=n; i++){
+		mean = mix(mean, sample(p,s), 1./n);
+		p+= dt*snake_derivative(p, -mean);
+	}
+	return sample(p,s);
 }
 
 /*vec2 snake_derivative(in vec2 p, in vec3 c, out vec3 cprime, const vec3 chan){
@@ -166,8 +174,6 @@ void main() {
 	vec2 p = gl_FragCoord.xy;
 	vec3 val_y = texelFetch(y, ivec2(p), 0).rgb;
 	vec3 val_agents = sigmoid(sample(p, agents));
-	vec3 val_blur = sample(p, blur);
-
 
 	
 	vec3 val_new;
@@ -191,17 +197,64 @@ void main() {
 //	val_new = sample(p, blur);
 	//val_new = snake_color(p, 8, warp);
 
-	vec2 ofs = warp*(color2dir(sample(p,blur)));
-	val_new = sample(p+ofs, blur)
-			+ sample(p+3.*ofs, blur)
-			+ sample(p+9.*ofs, blur)
-			+ sample(p+27.*ofs, blur);	
-	val_new/=4.;
+	p += zoom*normalize(.5*size-p);
+
+	int steps = 24;
+	float dt = warp;
+	vec3 val_var = snake_variance(y,p,steps,dt);
 	
+/*
+	vec2 ofs0 = warp*color2dir(sample(p,blur0));
+	vec2 ofs1 = 3.*warp*color2dir(sample(p,blur1));
+	vec2 ofs2 = 9.*warp*color2dir(sample(p,blur2));
+	vec2 ofs3 = 27.*warp*color2dir(sample(p,blur3));
+*/
 
-	ofs += zoom*normalize(.5*size-p);
+	/*p += 27.*warp*color2dir(sample(p,blur3));
+	p += 9.*warp*color2dir(sample(p,blur2));
+	p += 3.*warp*color2dir(sample(p,blur1));
+	p += warp*color2dir(sample(p,blur0));
+*/
+/*
+	p += warp*color2dir(sample(p,blur0));
+	p += 3.*warp*color2dir(sample(p,blur1));
+	p += 9.*warp*color2dir(sample(p,blur2));
+	p += 27.*warp*color2dir(sample(p,blur3));
+*/
+	vec3 c;
+	vec2 ofs;
 
-	p+=ofs;
+	val_new = vec3(0.);//sample(p,blur0)+sample(p,blur1)+sample(p,blur2)+sample(p,blur3);//vec3(0);//sample(p,blur3);//
+
+	c = sample(p,blur0);
+	ofs = warp*color2dir(c);
+	val_new += sample(p+ofs,y);//-sample(p+ofs,blur1);
+/*
+	c = sample(p,blur1);
+	ofs = 3.*warp*color2dir(c);
+	val_new += sample(p+ofs,y);//-sample(p+ofs,blur2);
+
+	c = sample(p,blur2);
+	ofs = 9.*warp*color2dir(c);
+	val_new += sample(p+ofs,y);//-sample(p+ofs,blur3);
+
+	c = sample(p,blur3);
+	ofs = 27.*warp*color2dir(c);
+	val_new += sample(p+ofs,y);
+
+	val_new *= .25;
+*/
+
+/*	val_new = sample(p+ofs0, blur0)
+			+ sample(p+ofs1, blur1)
+			+ sample(p+ofs2, blur2);
+			+ sample(p+ofs3, blur3);
+
+	val_new *=.25;
+	*/
+	//val_new = sample(p,y);
+
+	p += ofs;
 
 	//dynamic snakes
 	//dt of about 2 actually seems best, and small number of steps works fine
@@ -221,33 +274,41 @@ void main() {
 	float local_contrast = length(peak-trough)/sqrt(3.);
 	val_new = mix(val_y, val_blur, local_contrast);
 */
+/*
 	int steps = 8;
-	float dt = warp*warp;
+	float dt = 1;
 	vec3 local_mean = val_y;
 	int num = 1;
 	//vec3 peak0 = val_y;
-	vec3 peak1 = snake_dumb(p,steps,dt,-local_mean);
+	vec3 peak1 = snake_dumb(y,p,steps,dt,-local_mean);
 	local_mean = mix(local_mean, peak1, 1./(++num));
-	vec3 peak2 = snake_dumb(p,steps,dt,-local_mean);
+	vec3 peak2 = snake_dumb(y,p,steps,dt,-local_mean);
 	local_mean = mix(local_mean, peak2, 1./(++num));
-	vec3 peak3 = snake_dumb(p,steps,dt,-local_mean);
+	vec3 peak3 = snake_dumb(y,p,steps,dt,-local_mean);
 	local_mean = mix(local_mean, peak3, 1./(++num));
 
-	vec3 peaks;
+	/*vec3 peaks;
 	peaks.r = length(peak1-local_mean);
 	peaks.g = length(peak2-local_mean);
 	peaks.b = length(peak3-local_mean);
 	peaks = sigmoid(_color_proj*peaks);
+*/
+//	val_new = .5*(val_new + peak3) + val_agents;
+/*
+	int steps = 24;
+	float dt = warp;
+	val_new = snake_variance(y,p,steps,dt);
+*/	
+	//val_new += val_agents;
 
-	val_new += peak3 + peaks;
-	
-	val_new += val_agents;
-	
 	float mean = dot(val_new, vec3(1./3));
+	vec3 centered = val_new - mean;
 
 	val_new = mix(val_new, 
-		(val_new-mean)/(length(val_new-mean)+.0001)*target_sat + target_mean,
+		centered/(length(centered)+.001)*target_sat + target_mean,
 		target_mix);
+
+	val_new = max(val_new, u2b(val_agents));
 
 	//approach the new color
 	vec3 d = (val_new - val_y);// + .2*(sat + norm);// + blur;
