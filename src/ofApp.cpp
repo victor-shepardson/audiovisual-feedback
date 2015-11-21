@@ -107,9 +107,8 @@ void ofApp::setup(){
     sample_rate = 48000;
     audio_delay = .5;
     int frames_to_keep = 100;
-    double time_to_keep = 10;
 
-    vwt = new ofxVideoWaveTerrain(frames_to_keep, time_to_keep, sample_rate, audio_delay);
+    vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
     ofSoundStreamSetup(2, 0, this, sample_rate, 256, 4);
@@ -474,7 +473,7 @@ void ofApp::draw(){
     vwt->setAgentRate(agent_rate);
     vwt->setMomentumTime(momentum_time);
     vwt->setPathJitter(path_jitter);
-    vwt->setAspectRatio(double(w)/h);
+    vwt->getVideoVolume()->setAspectRatio(double(w)/h);
 
     //draw agent path
     int aw = agent_fbo->getWidth(), ah = agent_fbo->getHeight();
