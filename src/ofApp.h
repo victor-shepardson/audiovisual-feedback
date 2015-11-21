@@ -65,6 +65,11 @@ class ofApp : public ofBaseApp{
         void derivativeAtScale(float t, ofFbo &y, ofFbo &yprime, float scale);
         void derivativePost(float t, ofFbo &y, ofFbo &yprime, ofFbo &new_yprime);
 
+        void blur(ofFbo &src, ofFbo &dest, float radius);
+        void sub(ofFbo &pos, ofFbo& neg, ofFbo &dest);
+        void mov(ofFbo &src, ofFbo &dest);
+        void gradients(ofFbo &src);
+
         ofParameterGroup params;
         ofParameter<float> target_sat;
         ofParameter<float> target_mean;
@@ -101,7 +106,7 @@ class ofApp : public ofBaseApp{
 
         int window_width, window_height, render_width, render_height, realtime_width, realtime_height;
 
-        double sample_rate, frame_rate, audio_delay;
+        double sample_rate, frame_rate, audio_delay, scale_factor;
 
         bool drawing, //false in setup, true once draw loop begins
             realtime, use_camera, fullscreen, mute;

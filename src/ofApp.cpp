@@ -92,7 +92,8 @@ void ofApp::setup(){
     disp_scale = 0;
     disp_buf = 0;
 
-    num_scales = 1;
+    num_scales = 4;
+    scale_factor = 3;
 
     allocateFbos();
 
@@ -146,13 +147,13 @@ void ofApp::allocateFbos(){
     }*/
 
     ofFbo::Settings y_pyramid_params = fbo_params;
-    y_pyramid_params.numColorbuffers = 3;
+    y_pyramid_params.numColorbuffers = 3; //store gradients
     for(int i=0; i<num_scales; i++){
         ofFbo fbo;
         fbo.allocate(y_pyramid_params);
         y_pyramid.push_back(fbo);
-        y_pyramid_params.width/=2;
-        y_pyramid_params.height/=2;
+        y_pyramid_params.width/=scale_factor;
+        y_pyramid_params.height/=scale_factor;
     }
 
     ofFbo::Settings yprime_pyramid_params = fbo_params;
@@ -160,8 +161,8 @@ void ofApp::allocateFbos(){
         ofFbo fbo;
         fbo.allocate(yprime_pyramid_params  );
         yprime_pyramid.push_back(fbo);
-        yprime_pyramid_params.width/=2;
-        yprime_pyramid_params.height/=2;
+        yprime_pyramid_params.width/=scale_factor;
+        yprime_pyramid_params.height/=scale_factor;
     }
 
     y_fbo = new ofFbo();
@@ -235,6 +236,56 @@ void ofApp::resample(ofFbo &src, ofFbo &dest){
     dest.end();
     shader_resample.end();
 }
+void ofApp::blur(ofFbo &src, ofFbo &dest, float radius){
+    int w = dest.getWidth(), h = dest.getHeight();
+    ofFbo scratch;
+    scratch = dest;
+    shader_blur.begin();
+    shader_blur.setUniformTexture("state", src.getTextureReference(),0);
+    shader_blur.setUniform2i("size", w, h);
+    shader_blur.setUniform2f("dir",0,radius);
+    scratch.begin(); //inelegantly reusing this as a scratch buffer
+    ofRect(0, 0, w, h);
+    scratch.end();
+    shader_blur.setUniformTexture("state", scratch.getTextureReference(),0);
+    shader_blur.setUniform2f("dir",radius,0);
+    dest.begin();
+    ofRect(0, 0, w, h);
+    dest.end();
+    shader_blur.end();
+}
+void ofApp::sub(ofFbo &pos, ofFbo& neg, ofFbo &dest){
+    ofPushStyle();
+    if(&dest!=&pos)
+        mov(pos,dest);
+    ofEnableBlendMode(OF_BLENDMODE_SUBTRACT);
+    dest.begin();
+    neg.draw(0,0,dest.getWidth(), dest.getHeight());
+    dest.end();
+    ofPopStyle();
+}
+void ofApp::mov(ofFbo &src, ofFbo &dest){
+    ofPushStyle();
+    ofEnableBlendMode(OF_BLENDMODE_DISABLED);
+    dest.begin();
+    src.draw(0,0,dest.getWidth(), dest.getHeight());
+    dest.end();
+    ofPopStyle();
+}
+void ofApp::gradients(ofFbo &src){
+    //render x and y color gradients of texture 0 into textures 1 and 2 of the fbo
+    shader_grad.begin();
+    shader_grad.setUniformTexture("state", src.getTextureReference(0),0);
+    shader_grad.setUniform2i("size", src.getWidth(),src.getHeight());
+    src.begin();
+    vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
+    src.setActiveDrawBuffers(grad_bufs);
+    ofRect(0,0,src.getWidth(), src.getHeight());
+    src.setActiveDrawBuffer(0); //not sure what best practice for changing draw buffers should be
+    src.end();
+    shader_grad.end();
+}
+
 void ofApp::derivativeAtScale(float t, ofFbo &y, ofFbo &yprime, float scale){
     int w = y.getWidth(), h = y.getHeight();
     shader_scale_derivative.begin();
@@ -311,7 +362,7 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     int h = y.getHeight();
 
     //construct base of pyramid with gradients
-    y_pyramid[0].begin();
+/*    y_pyramid[0].begin();
     y_pyramid[0].setActiveDrawBuffer(0);
     y.draw(0,0,w,h);
     y_pyramid[0].end();
@@ -322,26 +373,38 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
     y_pyramid[0].begin();
     vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
     y_pyramid[0].setActiveDrawBuffers(grad_bufs);
-    y.draw(0,0,w,h);
+    ofRect(0,0,w,h);
     y_pyramid[0].end();
     shader_grad.end();
+*/
+    mov(y, y_pyramid[0]);
+    //gradients(y_pyramid[0]);
 
     //other channels such as gradient could be handled here
     //by drawing into additional textures of the pyramid base
     //in that case, resample would handle all textures in an fbo
 
     //compute pyramid + derivatives of y and accumulate to yprime
-    for(int i=0; i<y_pyramid.size(); i++){
-        float scale = pow(2,i);
-        if(i)
-            resample(y_pyramid[i-1], y_pyramid[i]);
+    for(int i=0; i<y_pyramid.size()-1; i++){
+        //resample(y_pyramid[i], y_pyramid[i+1]);
+        blur(y_pyramid[i], yprime_pyramid[i], 2.*scale_factor); //using yprime_pyramid[i] as scratch
+        sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+        mov(yprime_pyramid[i], y_pyramid[i+1]);
+    }
+   for(int i=0; i<y_pyramid.size(); i++){
+        float scale = pow(scale_factor,i);
+        gradients(y_pyramid[i]);
         derivativeAtScale(t, y_pyramid[i], yprime_pyramid[i], scale);
-        //ofPushStyle();
-        if(i)
-            ofBlendMode(OF_BLENDMODE_ADD);
-        resample(yprime_pyramid[i], yprime);
-        ofBlendMode(OF_BLENDMODE_DISABLED);
-        //ofPopStyle();
+        ofPushStyle();
+        if(!i){
+            ofEnableBlendMode(OF_BLENDMODE_DISABLED);
+            mov(yprime_pyramid[i], yprime);
+        }
+        else{
+            ofEnableBlendMode(OF_BLENDMODE_ADD);
+            resample(yprime_pyramid[i], yprime);
+        }
+        ofPopStyle();
     }
 
     //further (local) processing of derivative
@@ -485,7 +548,9 @@ void ofApp::draw(){
     ofRect(0, 0, aw, ah);
     ofPopStyle();
     vwt->draw(0, 0, aw, ah);
-    shader_blur.begin();
+    agent_fbo->end();
+    blur(*agent_fbo, *agent_fbo, path_blur);
+/*    shader_blur.begin();
     shader_blur.setUniformTexture("state", agent_fbo->getTextureReference(),0);
     shader_blur.setUniform2i("size", aw, ah);
     shader_blur.setUniform2f("dir",0,path_blur);
@@ -493,7 +558,7 @@ void ofApp::draw(){
     shader_blur.setUniform2f("dir",path_blur,0);
     ofRect(0, 0, aw, ah);
     shader_blur.end();
-    agent_fbo->end();
+    agent_fbo->end();*/
 
     rungeKutta(frame, 1, *y_fbo, k_fbos);
 
