@@ -23,7 +23,7 @@ vec3 grad(vec2 dir){
 	vec2 d = dir/length(dir);
 	vec3 above = sample(p+d);
 	vec3 below = sample(p-d);
-	vec3 ret = (above-below)/2.;//(length(above-below)+.1);//normalize(above-below);//.5*(above-below);
+	vec3 ret = (above-below)/(length(above-below)+.5);//normalize(above-below);//.5*(above-below);
 	return ret;
 }
 

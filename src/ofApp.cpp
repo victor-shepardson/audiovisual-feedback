@@ -181,8 +181,8 @@ void ofApp::setup(){
     disp_scale = 0;
     disp_buf = 0;
 
-    num_scales = 3;
-    scale_factor = 4;
+    num_scales = 4;
+    scale_factor = 3;
 
     allocateFbos();
 
