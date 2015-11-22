@@ -1,6 +1,94 @@
 #include "ofApp.h"
 #include "math.h"
 
+//always read the current state from ping
+//draw to pong when using begin() and end(), then automatically swap with ping
+//note that end() must be called after each self-draw for this to work
+//if using blending, draw in place to ping using beginInPlace() and endInPlace()
+//might ultimately be cleaner to just avoid blending, emulating with shaders
+ofxPingPongFbo::ofxPingPongFbo(){
+    ping = new ofFbo();
+    pong = new ofFbo();
+    aux = new ofFbo();
+}
+ofxPingPongFbo ofxPingPongFbo::copy(){
+    ofxPingPongFbo daughter;
+    daughter.allocate(settings);
+    return daughter;
+}
+void ofxPingPongFbo::destroy(){
+    delete ping;
+    delete pong;
+    delete aux;
+}
+void ofxPingPongFbo::allocate(ofFbo::Settings s){
+    ping->allocate(s);
+    pong->allocate(s);
+    aux->allocate(s);
+    settings = s;
+}
+void ofxPingPongFbo::save(){
+    aux->begin();
+    ping->draw(0,0);
+    aux->end();
+}
+void ofxPingPongFbo::restore(){
+    ping = aux;
+}
+void ofxPingPongFbo::draw(int x,int y,int w,int h){
+    ping->draw(x,y,w,h);
+}
+ofTexture& ofxPingPongFbo::getTextureReference(){
+    return ping->getTextureReference();
+}
+ofTexture& ofxPingPongFbo::getTextureReference(int i){
+    return ping->getTextureReference(i);
+}
+int ofxPingPongFbo::getWidth(){
+    return settings.width;
+}
+int ofxPingPongFbo::getHeight(){
+    return settings.height;
+}
+void ofxPingPongFbo::begin(){
+    pong->begin();
+}
+void ofxPingPongFbo::end(){
+    pong->end();
+    ofFbo *temp = ping;
+    ping = pong;
+    pong = temp;
+}
+void ofxPingPongFbo::beginInPlace(){
+    ping->begin();
+}
+void ofxPingPongFbo::endInPlace(){
+    ping->end();
+}
+void ofxPingPongFbo::readToPixels(ofPixels & pixels, int attachmentPoint = 0) const{
+    ping->readToPixels(pixels, attachmentPoint);
+}
+void ofxPingPongFbo::readToPixels(ofFloatPixels & pixels, int attachmentPoint = 0) const{
+    ping->readToPixels(pixels, attachmentPoint);
+}
+int ofxPingPongFbo::getNumTextures(){
+    return settings.numColorbuffers;
+}
+// !!!
+// unsure if these will work with beginInPlace() and endInPlace()
+void ofxPingPongFbo::setActiveDrawBuffer(int i){
+    ping->setActiveDrawBuffer(i);
+    pong->setActiveDrawBuffer(i);
+}
+void ofxPingPongFbo::setActiveDrawBuffers(const vector<int>& i){
+    ping->setActiveDrawBuffers(i);
+    pong->setActiveDrawBuffers(i);
+}
+void ofxPingPongFbo::activateAllDrawBuffers(){
+    ping->activateAllDrawBuffers();
+    pong->activateAllDrawBuffers();
+}
+
 void ofApp::setup(){
     params.setName("params");
 	params.add(target_sat.set("target_sat",.7));
@@ -60,10 +148,11 @@ void ofApp::setup(){
     ofSetWindowShape(window_width, window_height);
 
     ofEnableDataPath();
+
     ofDisableArbTex();
-    //ofDisableAlphaBlending();
+    ofEnableBlendMode(OF_BLENDMODE_DISABLED);
     ofDisableDepthTest();
-    //ofDisableAntiAliasing();
+    ofDisableAntiAliasing();
     ofSetTextureWrap(GL_REPEAT, GL_REPEAT);
 
     shader_resample.load(ofToDataPath("../../src/shader/resample"));
@@ -92,16 +181,13 @@ void ofApp::setup(){
     disp_scale = 0;
     disp_buf = 0;
 
-    num_scales = 4;
-    scale_factor = 3;
+    num_scales = 3;
+    scale_factor = 4;
 
     allocateFbos();
 
-    agent_fbo->begin();
-    ofClear(0,0,0,1);
-    agent_fbo->end();
-
-    initRandom(*y_fbo, 0);
+    fill(agent_fbo, ofFloatColor(0,0,0,1));
+    initRandom(y_fbo, 0);
 
     channels = 2;
     frame_rate = 24;
@@ -130,26 +216,15 @@ void ofApp::close(){
 
 void ofApp::allocateFbos(){
     for(int i=0; i<4; i++){
-        ofFbo fbo;
+        ofxPingPongFbo fbo;
         fbo.allocate(fbo_params);
         k_fbos.push_back(fbo);
     }
-    /*
-    for(int i=0; i<2; i++){
-        ofFbo fbo;
-        fbo.allocate(fbo_params);
-        grad_fbos.push_back(fbo);
-    }
-    for(int i=0; i<4; i++){
-        ofFbo fbo;
-        fbo.allocate(fbo_params);
-        blur_fbos.push_back(fbo);
-    }*/
 
     ofFbo::Settings y_pyramid_params = fbo_params;
     y_pyramid_params.numColorbuffers = 3; //store gradients
     for(int i=0; i<num_scales; i++){
-        ofFbo fbo;
+        ofxPingPongFbo fbo;
         fbo.allocate(y_pyramid_params);
         y_pyramid.push_back(fbo);
         y_pyramid_params.width/=scale_factor;
@@ -158,135 +233,152 @@ void ofApp::allocateFbos(){
 
     ofFbo::Settings yprime_pyramid_params = fbo_params;
     for(int i=0; i<num_scales; i++){
-        ofFbo fbo;
+        ofxPingPongFbo fbo;
         fbo.allocate(yprime_pyramid_params  );
         yprime_pyramid.push_back(fbo);
         yprime_pyramid_params.width/=scale_factor;
         yprime_pyramid_params.height/=scale_factor;
     }
 
-    y_fbo = new ofFbo();
-    y_fbo->allocate(fbo_params);
-    display_fbo = new ofFbo();
-    display_fbo->allocate(fbo_params);
-    scratch_fbo = new ofFbo();
-    scratch_fbo->allocate(fbo_params);
-    render_fbo = new ofFbo();
-    render_fbo->allocate(fbo_params);
+    y_fbo = ofxPingPongFbo();
+    y_fbo.allocate(fbo_params);
+    display_fbo = ofxPingPongFbo();
+    display_fbo.allocate(fbo_params);
+    scratch_fbo = ofxPingPongFbo();
+    scratch_fbo.allocate(fbo_params);
+    render_fbo = ofxPingPongFbo();
+    render_fbo.allocate(fbo_params);
 
     ofFbo::Settings agent_fbo_params = fbo_params;
-    //agent_fbo_params.numSamples = oversample_waveform;
     agent_fbo_params.width *= oversample_waveform;
     agent_fbo_params.height *= oversample_waveform;
-    agent_fbo = new ofFbo();
-    agent_fbo->allocate(agent_fbo_params);
+    agent_fbo = ofxPingPongFbo();
+    agent_fbo.allocate(agent_fbo_params);
 
     ofFbo::Settings readback_fbo_params = fbo_params;
     readback_fbo_params.width /= undersample_terrain;
     readback_fbo_params.height /= undersample_terrain;
-    readback_fbo = new ofFbo();
-    readback_fbo->allocate(readback_fbo_params);
+    readback_fbo = ofxPingPongFbo();
+    readback_fbo.allocate(readback_fbo_params);
 }
 
 void ofApp::setResolution(int x, int y){
 
-    ofFbo *temp_y_fbo = y_fbo;
-    ofFbo *temp_agent_fbo = agent_fbo;
+    ofxPingPongFbo temp_y_fbo = y_fbo;
+    ofxPingPongFbo temp_agent_fbo = agent_fbo;
 
+    for(int i=0; i<k_fbos.size(); i++)
+        k_fbos[i].destroy();
     k_fbos.clear();
-//    grad_fbos.clear();
-  //  blur_fbos.clear();
+    for(int i=0; i<y_pyramid.size(); i++)
+        y_pyramid[i].destroy();
     y_pyramid.clear();
+    for(int i=0; i<yprime_pyramid.size(); i++)
+        yprime_pyramid[i].destroy();
     yprime_pyramid.clear();
 
-    delete scratch_fbo;
-    delete display_fbo;
-    delete readback_fbo;
+    scratch_fbo.destroy();
+    display_fbo.destroy();
+    readback_fbo.destroy();
 
     fbo_params.width = x;
     fbo_params.height = y;
 
     allocateFbos();
 
-    y_fbo->begin();
-    temp_y_fbo->draw(0,0,y_fbo->getWidth(),y_fbo->getHeight());
-    y_fbo->end();
-    delete temp_y_fbo;
+    resample(temp_y_fbo, y_fbo);
+    temp_y_fbo.destroy();
 
-    agent_fbo->begin();
-    temp_agent_fbo->draw(0,0,agent_fbo->getWidth(),agent_fbo->getHeight());
-    agent_fbo->end();
-    delete temp_agent_fbo;
+    resample(temp_agent_fbo, agent_fbo);
+    temp_agent_fbo.destroy();
 }
-void ofApp::resample(ofFbo &src, ofFbo &dest){
+void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     //resample src to dest with truncated gaussian kernel
-    //supports up to 3 textures per fbo; could be generalized to many with opengl 4 I think
-    int nt = src.getNumTextures();
-    shader_resample.begin();
-    shader_resample.setUniformTexture("src0", src.getTextureReference(0), 0);
-    if(nt>1)
-        shader_resample.setUniformTexture("src1", src.getTextureReference(1), 1);
-    if(nt>2)
-        shader_resample.setUniformTexture("src2", src.getTextureReference(2), 2);
-    shader_resample.setUniform2i("dest_size", dest.getWidth(), dest.getHeight());
-    shader_resample.setUniform1i("num_textures", nt);
-    dest.begin();
-    dest.activateAllDrawBuffers();
-    src.draw(0,0,dest.getWidth(), dest.getHeight());
-    dest.end();
-    shader_resample.end();
+    float sf = float(src.getWidth())/dest.getWidth();
+    if(sf>1){ //downsample
+        src.save();
+        blur(src, src, 2.*sf);
+        mov(src, dest);
+        src.restore();
+    }
+    else{ //upsample
+ /*       mov(src, dest);
+        blur(dest, dest, 2./sf);
+    }
+*/
+        shader_resample.begin();
+        shader_resample.setUniformTexture("src0", src.getTextureReference(0), 0);
+        shader_resample.setUniform2i("dest_size", dest.getWidth(), dest.getHeight());
+        shader_resample.setUniform1i("num_textures", 1);
+        dest.begin();
+        ofRect(0,0,dest.getWidth(), dest.getHeight());
+        dest.end();
+        shader_resample.end();
+    }
 }
-void ofApp::blur(ofFbo &src, ofFbo &dest, float radius){
+void ofApp::fill(ofxPingPongFbo &dest, ofFloatColor c){
+    ofPushStyle();
+    ofFill();
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    ofSetColor(c);
+    dest.beginInPlace();
+    ofRect(0, 0, dest.getWidth(), dest.getHeight());
+    dest.endInPlace();
+    ofPopStyle();
+}
+void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
     int w = dest.getWidth(), h = dest.getHeight();
-    ofFbo scratch;
-    scratch = dest;
     shader_blur.begin();
     shader_blur.setUniformTexture("state", src.getTextureReference(),0);
     shader_blur.setUniform2i("size", w, h);
     shader_blur.setUniform2f("dir",0,radius);
-    scratch.begin(); //inelegantly reusing this as a scratch buffer
+    dest.begin();
     ofRect(0, 0, w, h);
-    scratch.end();
-    shader_blur.setUniformTexture("state", scratch.getTextureReference(),0);
+    dest.end();
+    shader_blur.setUniformTexture("state", dest.getTextureReference(),0);
     shader_blur.setUniform2f("dir",radius,0);
     dest.begin();
     ofRect(0, 0, w, h);
     dest.end();
     shader_blur.end();
 }
-void ofApp::sub(ofFbo &pos, ofFbo& neg, ofFbo &dest){
+void ofApp::sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest){
     ofPushStyle();
     if(&dest!=&pos)
         mov(pos,dest);
     ofEnableBlendMode(OF_BLENDMODE_SUBTRACT);
-    dest.begin();
+    dest.beginInPlace();
     neg.draw(0,0,dest.getWidth(), dest.getHeight());
-    dest.end();
+    dest.endInPlace();
     ofPopStyle();
 }
-void ofApp::mov(ofFbo &src, ofFbo &dest){
-    ofPushStyle();
-    ofEnableBlendMode(OF_BLENDMODE_DISABLED);
-    dest.begin();
+//mov is style-agnostic
+void ofApp::mov(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    dest.beginInPlace();
     src.draw(0,0,dest.getWidth(), dest.getHeight());
-    dest.end();
+    dest.endInPlace();
+}
+void ofApp::blend(ofxPingPongFbo &src, ofxPingPongFbo &dest, ofBlendMode mode){
+    ofPushStyle();
+    ofEnableBlendMode(mode);
+    mov(src, dest);
     ofPopStyle();
 }
-void ofApp::gradients(ofFbo &src){
+void ofApp::gradients(ofxPingPongFbo &src){
     //render x and y color gradients of texture 0 into textures 1 and 2 of the fbo
     shader_grad.begin();
     shader_grad.setUniformTexture("state", src.getTextureReference(0),0);
     shader_grad.setUniform2i("size", src.getWidth(),src.getHeight());
-    src.begin();
+    src.beginInPlace();
     vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
     src.setActiveDrawBuffers(grad_bufs);
     ofRect(0,0,src.getWidth(), src.getHeight());
-    src.setActiveDrawBuffer(0); //not sure what best practice for changing draw buffers should be
-    src.end();
+    src.setActiveDrawBuffer(0); //clean up before calling end; active draw buffer assumed to be 0
+    src.endInPlace();
     shader_grad.end();
 }
 
-void ofApp::derivativeAtScale(float t, ofFbo &y, ofFbo &yprime, float scale){
+void ofApp::derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, float scale){
     int w = y.getWidth(), h = y.getHeight();
     shader_scale_derivative.begin();
     shader_scale_derivative.setUniform1f("t",t);
@@ -302,13 +394,13 @@ void ofApp::derivativeAtScale(float t, ofFbo &y, ofFbo &yprime, float scale){
     yprime.end();
     shader_scale_derivative.end();
 }
-void ofApp::derivativePost(float t, ofFbo &y, ofFbo &yprime, ofFbo &new_yprime){
+void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime){
     int w = y.getWidth(), h = y.getHeight();
     shader_post_derivative.begin();
     shader_post_derivative.setUniform1f("t",t);
     shader_post_derivative.setUniformTexture("y", y.getTextureReference(),0);
     shader_post_derivative.setUniformTexture("yprime", yprime.getTextureReference(),1);
-    shader_post_derivative.setUniformTexture("agents", agent_fbo->getTextureReference(),2);
+    shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(),2);
     shader_post_derivative.setUniform2i("size", w, h);
     shader_post_derivative.setUniform1f("time_scale",time_scale);
     shader_post_derivative.setUniform1f("rot",rot);
@@ -324,10 +416,9 @@ void ofApp::derivativePost(float t, ofFbo &y, ofFbo &yprime, ofFbo &new_yprime){
 }
 
 //get next y from y,dt,k0,k1,k2,k3 and store in new_y
-void ofApp::rkUpdate(float dt, ofFbo &y, vector<ofFbo> &k, ofFbo &new_y){
+void ofApp::rkUpdate(float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k, ofxPingPongFbo &new_y){
     int w = y.getWidth();
     int h = y.getHeight();
-    new_y.begin();
     shader_rkupdate.begin();
     shader_rkupdate.setUniform1i("mode", 1);
     shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
@@ -336,57 +427,36 @@ void ofApp::rkUpdate(float dt, ofFbo &y, vector<ofFbo> &k, ofFbo &new_y){
     shader_rkupdate.setUniformTexture("k2", k[2].getTextureReference(),3);
     shader_rkupdate.setUniformTexture("k3", k[3].getTextureReference(),4);
     shader_rkupdate.setUniform1f("dt", dt);
+    new_y.begin();
     ofRect(0, 0, w, h);
-    shader_rkupdate.end();
     new_y.end();
+    shader_rkupdate.end();
 }
 
 //get next y from y,dt,k and store in new_y
-void ofApp::rkUpdate(float dt, ofFbo &y, ofFbo &k, ofFbo &new_y){
+void ofApp::rkUpdate(float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &new_y){
     int w = y.getWidth();
     int h = y.getHeight();
-    new_y.begin();
     shader_rkupdate.begin();
     shader_rkupdate.setUniform1i("mode", 0);
     shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
     shader_rkupdate.setUniformTexture("k0", k.getTextureReference(),1);
     shader_rkupdate.setUniform1f("dt", dt);
+    new_y.begin();
     ofRect(0, 0, w, h);
-    shader_rkupdate.end();
     new_y.end();
+    shader_rkupdate.end();
 }
 
 //the meat: compute y' as f(t, y) and store in yprime
-void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
+void ofApp::rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
     int w = y.getWidth();
     int h = y.getHeight();
 
-    //construct base of pyramid with gradients
-/*    y_pyramid[0].begin();
-    y_pyramid[0].setActiveDrawBuffer(0);
-    y.draw(0,0,w,h);
-    y_pyramid[0].end();
-
-    shader_grad.begin();
-    shader_grad.setUniformTexture("state", y_pyramid[0].getTextureReference(0),0);
-    shader_grad.setUniform2i("size", w,h);
-    y_pyramid[0].begin();
-    vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
-    y_pyramid[0].setActiveDrawBuffers(grad_bufs);
-    ofRect(0,0,w,h);
-    y_pyramid[0].end();
-    shader_grad.end();
-*/
     mov(y, y_pyramid[0]);
-    //gradients(y_pyramid[0]);
-
-    //other channels such as gradient could be handled here
-    //by drawing into additional textures of the pyramid base
-    //in that case, resample would handle all textures in an fbo
 
     //compute pyramid + derivatives of y and accumulate to yprime
     for(int i=0; i<y_pyramid.size()-1; i++){
-        //resample(y_pyramid[i], y_pyramid[i+1]);
         blur(y_pyramid[i], yprime_pyramid[i], 2.*scale_factor); //using yprime_pyramid[i] as scratch
         sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
@@ -395,128 +465,36 @@ void ofApp::rkDerivative(float t, ofFbo &y, ofFbo &yprime){
         float scale = pow(scale_factor,i);
         gradients(y_pyramid[i]);
         derivativeAtScale(t, y_pyramid[i], yprime_pyramid[i], scale);
-        ofPushStyle();
         if(!i){
-            ofEnableBlendMode(OF_BLENDMODE_DISABLED);
             mov(yprime_pyramid[i], yprime);
         }
         else{
-            ofEnableBlendMode(OF_BLENDMODE_ADD);
-            resample(yprime_pyramid[i], yprime);
+            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
+            blend(y_pyramid[0], yprime, OF_BLENDMODE_ADD);
         }
-        ofPopStyle();
     }
 
     //further (local) processing of derivative
     derivativePost(t, y, yprime, yprime);
-
-
-    /*
-
-    //convolution passes
-    if(!use_camera){
-        for(int i=0; i<blur_fbos.size(); i++){
-
-            /////////
-            if(i) break;
-            /////////
-
-            float blur_scale;
-            ofTexture * src_tex;
-            if(i){
-                blur_scale = pow(3,i)-pow(3,i-1);
-                src_tex = &blur_fbos[i-1].getTextureReference();
-            }
-            else{
-                blur_scale = 1;
-                src_tex = &y.getTextureReference();
-            }
-            shader_blur.begin();
-            shader_blur.setUniformTexture("state", *src_tex,0);
-            shader_blur.setUniform2i("size", w, h);
-            shader_blur.setUniform2f("dir",0,blur_size*blur_scale);
-            grad_fbos[0].begin(); //inelegantly reusing this as a scratch buffer
-            ofRect(0, 0, w, h);
-            grad_fbos[0].end();
-            shader_blur.setUniformTexture("state", grad_fbos[0].getTextureReference(),0);
-            shader_blur.setUniform2f("dir",blur_size*blur_scale,0);
-            blur_fbos[i].begin();
-            ofRect(0, 0, w, h);
-            blur_fbos[i].end();
-            shader_blur.end();
-        }
-    }
-
-    ofTexture * grad_tex;
-    if(use_camera) grad_tex = &camera.getTextureReference();
-    else grad_tex = &blur_fbos[0].getTextureReference();//&y.getTextureReference();
-
-    //horizontal and vertical gradient passes
-    shader_grad.begin();
-    shader_grad.setUniformTexture("state", *grad_tex,0);
-    shader_grad.setUniform2f("dir", 1, 0);
-    shader_grad.setUniform2i("size",w,h);
-    grad_fbos[0].begin();
-    ofRect(0,0,w,h);
-    grad_fbos[0].end();
-    shader_grad.setUniform2f("dir", 0, 1);
-    grad_fbos[1].begin();
-    ofRect(0,0,w,h);
-    grad_fbos[1].end();
-    shader_grad.end();
-
-    yprime.begin();
-    shader_rkderivative.begin();
-    shader_rkderivative.setUniform1f("t",t);
-    shader_rkderivative.setUniformTexture("y", y.getTextureReference(),0);
-    shader_rkderivative.setUniformTexture("xgrad", grad_fbos[0].getTextureReference(),1);
-    shader_rkderivative.setUniformTexture("ygrad", grad_fbos[1].getTextureReference(),2);
-    shader_rkderivative.setUniformTexture("agents", agent_fbo->getTextureReference(),3);
-    shader_rkderivative.setUniformTexture("blur0", blur_fbos[0].getTextureReference(),4);
-    shader_rkderivative.setUniformTexture("blur1", blur_fbos[1].getTextureReference(),5);
-    shader_rkderivative.setUniformTexture("blur2", blur_fbos[2].getTextureReference(),6);
-    shader_rkderivative.setUniformTexture("blur3", blur_fbos[3].getTextureReference(),7);
-    shader_rkderivative.setUniform2i("size", w, h);
-    shader_rkderivative.setUniform1f("target_sat", target_sat);
-    shader_rkderivative.setUniform1f("target_mean", target_mean);
-    shader_rkderivative.setUniform1f("target_mix", target_mix);
-    shader_rkderivative.setUniform1f("time_scale", time_scale);
-    shader_rkderivative.setUniform1f("rot", rot);
-    shader_rkderivative.setUniform1f("warp", warp);
-    shader_rkderivative.setUniform1f("zoom", zoom);
-    shader_rkderivative.setUniform1f("bound_gauss", bound_gauss);
-    shader_rkderivative.setUniform1f("bound_clip", bound_clip);
-    shader_rkderivative.setUniformMatrix4f("color_proj", color_proj);
-    shader_rkderivative.setUniformMatrix4f("grad_proj", grad_proj);
-    ofRect(0, 0, w, h);
-    shader_rkderivative.end();
-    yprime.end();
-
-    */
 }
 
 //compute f(t+dt, y+dt*k) and store in yprime
-void ofApp::rkStep(float t, float dt, ofFbo &y, ofFbo &k, ofFbo &yprime){
+void ofApp::rkStep(float t, float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &yprime){
     if(dt>0){
-        rkUpdate(dt, y, k, *scratch_fbo); //using scratch_fbo to store y+k*dt
-        rkDerivative(t+dt, *scratch_fbo, yprime);
+        rkUpdate(dt, y, k, scratch_fbo); //using scratch_fbo to store y+k*dt
+        rkDerivative(t+dt, scratch_fbo, yprime);
     }
     else{
         rkDerivative(t, y, yprime);
     }
 }
 //use runge-kutta algorithm to approximate y(t+dt). k must contain at least 4 scratch fbos
-void ofApp::rungeKutta(float t, float dt, ofFbo &y, vector<ofFbo> &k){
+void ofApp::rungeKutta(float t, float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k){
     rkStep(t, 0, y, k[0], k[0]); //first k[0] is a dummy argument
     rkStep(t, .5*dt, y, k[0], k[1]);
     rkStep(t, .5*dt, y, k[1], k[2]);
     rkStep(t, dt, y, k[2], k[3]);
     rkUpdate(dt,y,k,y); //in-place works because the update operation is completely parallel
-    /*rkUpdate(dt, y, k, *scratch_fbo); //use scratch_fbo to prevent races
-    y.begin();
-    scratch_fbo->draw(0,0,y.getWidth(),y.getHeight());
-    y.end();
-    */
 }
 
 void ofApp::update(){
@@ -530,8 +508,8 @@ void ofApp::draw(){
     double cur_frame_rate = frame_rate;
     if(realtime) cur_frame_rate = ofGetFrameRate();
 
-    int w = y_fbo->getWidth();
-    int h = y_fbo->getHeight();
+    int w = y_fbo.getWidth();
+    int h = y_fbo.getHeight();
 
     vwt->setAgentRate(agent_rate);
     vwt->setMomentumTime(momentum_time);
@@ -539,44 +517,28 @@ void ofApp::draw(){
     vwt->getVideoVolume()->setAspectRatio(double(w)/h);
 
     //draw agent path
-    int aw = agent_fbo->getWidth(), ah = agent_fbo->getHeight();
+    int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
     float alpha = 1 - pow(2, -1./(fade_time*cur_frame_rate));
-    agent_fbo->begin();
-    ofPushStyle();
-    ofFill();
-    ofSetColor(ofFloatColor(0,0,0,alpha));
-    ofRect(0, 0, aw, ah);
-    ofPopStyle();
+    fill(agent_fbo, ofFloatColor(0,0,0,alpha));
+    agent_fbo.beginInPlace();
     vwt->draw(0, 0, aw, ah);
-    agent_fbo->end();
-    blur(*agent_fbo, *agent_fbo, path_blur);
-/*    shader_blur.begin();
-    shader_blur.setUniformTexture("state", agent_fbo->getTextureReference(),0);
-    shader_blur.setUniform2i("size", aw, ah);
-    shader_blur.setUniform2f("dir",0,path_blur);
-    ofRect(0, 0, aw, ah);
-    shader_blur.setUniform2f("dir",path_blur,0);
-    ofRect(0, 0, aw, ah);
-    shader_blur.end();
-    agent_fbo->end();*/
+    agent_fbo.endInPlace();
+    blur(agent_fbo, agent_fbo, path_blur);
 
-    rungeKutta(frame, 1, *y_fbo, k_fbos);
+    rungeKutta(frame, 1, y_fbo, k_fbos);
 
-    display_fbo->begin();
+    display_fbo.begin();
     shader_display.begin();
-    shader_display.setUniform2i("size", display_fbo->getWidth(), display_fbo->getHeight());
-    shader_display.setUniformTexture("state", y_fbo->getTextureReference(),0);
-    ofRect(0, 0, display_fbo->getWidth(), display_fbo->getHeight());
+    shader_display.setUniform2i("size", display_fbo.getWidth(), display_fbo.getHeight());
+    shader_display.setUniformTexture("state", y_fbo.getTextureReference(),0);
+    ofRect(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
     shader_display.end();
-    display_fbo->end();
-
-    readback_fbo->begin();
-    display_fbo->draw(0,0,readback_fbo->getWidth(),readback_fbo->getHeight());
-    readback_fbo->end();
+    display_fbo.end();
 
     //read pixels back from video memory and put a new frame in the VWT
+    mov(display_fbo, readback_fbo);
     ofFloatPixels pix;
-    readback_fbo->readToPixels(pix,0);
+    readback_fbo.readToPixels(pix,0);
     vwt->insert_frame(pix);
 
     //if in render mode, compute audio in the draw loop
@@ -601,17 +563,17 @@ void ofApp::draw(){
 
         //save frame to disk
         //render_fbo->begin();
-        //display_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
+        //display_fbo.draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
         //render_fbo->end();
         ofImage img;
-        img.allocate(display_fbo->getWidth(), display_fbo->getHeight(), OF_IMAGE_COLOR);
-        display_fbo->readToPixels(img.getPixelsRef());
+        img.allocate(display_fbo.getWidth(), display_fbo.getHeight(), OF_IMAGE_COLOR);
+        display_fbo.readToPixels(img.getPixelsRef());
         stringstream feedback_fname;
         feedback_fname<<cur_save_dir.path()<<ofToDataPath("/feedback-")<<frame<<".png";
         img.saveImage(feedback_fname.str());
 
         /*render_fbo->begin();
-        agent_fbo->draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
+        agent_fbo.draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
         render_fbo->end();
         render_fbo->readToPixels(pix);
         stringstream waveform_fname;
@@ -633,18 +595,21 @@ void ofApp::draw(){
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
     switch(disp_mode){
         case 0:
-            display_fbo->draw(0,0,ww,wh);
+            display_fbo.draw(0,0,ww,wh);
             break;
         case 1:
-            agent_fbo->draw(0,0,ww,wh);
+            agent_fbo.draw(0,0,ww,wh);
             break;
         case 2:
             if(use_camera) camera.draw(0,0,ww,wh);
             else{
-                resample(yprime_pyramid[disp_scale], *display_fbo);
+                if(!disp_scale)
+                    mov(yprime_pyramid[disp_scale], display_fbo);
+                else
+                    resample(yprime_pyramid[disp_scale], display_fbo);
                 shader_display.begin();
                 shader_display.setUniform2i("size",ww,wh);
-                shader_display.setUniformTexture("state", display_fbo->getTextureReference(),0);
+                shader_display.setUniformTexture("state", display_fbo.getTextureReference(),0);
                 ofRect(0,0,ww,wh);
                 shader_display.end();
             }
@@ -670,22 +635,13 @@ void ofApp::draw(){
             ofRect(0,0,ww,wh);
             shader_display.end();
             break;
-            /*
-        case 4:
-            shader_display.begin();
-            shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", grad_fbos[1].getTextureReference(),0);
-            ofRect(0,0,ww,wh);
-            shader_display.end();
-            break;
-            */
     }
 
     frame++;
     drawing = true;
 }
 
-void ofApp::initRandom(ofFbo &target, int seed){
+void ofApp::initRandom(ofxPingPongFbo &target, int seed){
     printf("init random %d\n", seed);
     ofSeedRandom(seed);
     ofFloatPixels newState;
@@ -694,9 +650,9 @@ void ofApp::initRandom(ofFbo &target, int seed){
     newState.allocate(w, h, OF_IMAGE_COLOR);
     for(int x=0; x<w; x++){
         for(int y=0; y<h; y++){
-            float r = ofSignedNoise(x+1,y+11,frame);
-            float g = ofSignedNoise(x+111,y+1111,frame);
-            float b = ofSignedNoise(x+11111,y+111111,frame);
+            float r = ofSignedNoise(x,y,frame);
+            float g = ofSignedNoise(x+11111,y+11111,frame);
+            float b = ofSignedNoise(x+37283,y+37283,frame);
             newState.setColor(x,y,ofFloatColor(r,g,b));
         }
     }
@@ -799,20 +755,20 @@ void ofApp::keyPressed(int key){
     }
     if(key=='s'){
         ofPixels p;
-        display_fbo->readToPixels(p);
+        display_fbo.readToPixels(p);
         ofImage ss = ofImage(p);
         stringstream fname;
         fname<<"ss-"<<ofGetTimestampString()<<".png";
         ss.saveImage(fname.str());
     }
     if(key=='r'){
-        initRandom(*y_fbo, seed);
+        initRandom(y_fbo, seed);
         vwt->scramble();
         ofPushStyle();
         ofSetColor(0,0,0);
-        agent_fbo->begin();
-        ofRect(0,0,agent_fbo->getWidth(),agent_fbo->getHeight());
-        agent_fbo->end();
+        agent_fbo.begin();
+        ofRect(0,0,agent_fbo.getWidth(),agent_fbo.getHeight());
+        agent_fbo.end();
         ofPopStyle();
     }
     if(key==']'){

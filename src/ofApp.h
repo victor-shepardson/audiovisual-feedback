@@ -25,6 +25,34 @@
 // - accumulation of derivatives:
 // - for each scale:[downsample image -> compute derivative -> upsample derivative -> accumulate] -> integrate
 
+class ofxPingPongFbo{
+public:
+    ofxPingPongFbo();
+    ofxPingPongFbo copy();
+    void destroy();
+    void allocate(ofFbo::Settings);
+    void draw(int,int,int,int);
+    ofTexture& getTextureReference();
+    ofTexture& getTextureReference(int);
+    int getWidth();
+    int getHeight();
+    void save();
+    void restore();
+    void begin();
+    void end();
+    void beginInPlace();
+    void endInPlace();
+    void readToPixels(ofPixels&, int) const;
+    void readToPixels(ofFloatPixels&, int) const;
+    int getNumTextures();
+    void setActiveDrawBuffer(int);
+	void setActiveDrawBuffers(const vector<int>&);
+	void activateAllDrawBuffers();
+    ofFbo::Settings settings;
+private:
+    ofFbo *ping, *pong, *aux;
+};
+
 class ofApp : public ofBaseApp{
 
     public:
@@ -51,24 +79,26 @@ class ofApp : public ofBaseApp{
         void windowResized(int w, int h);
         void dragEvent(ofDragInfo dragInfo);
         void gotMessage(ofMessage msg);
-        void initRandom(ofFbo &target, int mode);
+        void initRandom(ofxPingPongFbo &target, int mode);
         void initParams(int &seed);
         void toggleRecord(int& r);
 
-        void rkUpdate(float dt, ofFbo &y, ofFbo &k, ofFbo &new_y);
-        void rkUpdate(float dt, ofFbo &y, vector<ofFbo> &k, ofFbo &new_y);
-        void rkDerivative(float t, ofFbo &y, ofFbo &yprime);
-        void rkStep(float t, float dt, ofFbo &y, ofFbo &k, ofFbo &yprime);
-        void rungeKutta(float t, float dt, ofFbo &y, vector<ofFbo> &k);
+        void rkUpdate(float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &new_y);
+        void rkUpdate(float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k, ofxPingPongFbo &new_y);
+        void rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime);
+        void rkStep(float t, float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &yprime);
+        void rungeKutta(float t, float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k);
 
-        void resample(ofFbo &src, ofFbo &dest);
-        void derivativeAtScale(float t, ofFbo &y, ofFbo &yprime, float scale);
-        void derivativePost(float t, ofFbo &y, ofFbo &yprime, ofFbo &new_yprime);
+        void resample(ofxPingPongFbo &src, ofxPingPongFbo &dest);
+        void derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, float scale);
+        void derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime);
 
-        void blur(ofFbo &src, ofFbo &dest, float radius);
-        void sub(ofFbo &pos, ofFbo& neg, ofFbo &dest);
-        void mov(ofFbo &src, ofFbo &dest);
-        void gradients(ofFbo &src);
+        void fill(ofxPingPongFbo &dest, ofFloatColor c);
+        void blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius);
+        void sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest);
+        void mov(ofxPingPongFbo &src, ofxPingPongFbo &dest);
+        void blend(ofxPingPongFbo &src, ofxPingPongFbo &dest, ofBlendMode mode);
+        void gradients(ofxPingPongFbo &src);
 
         ofParameterGroup params;
         ofParameter<float> target_sat;
@@ -96,8 +126,8 @@ class ofApp : public ofBaseApp{
 
         ofFbo::Settings fbo_params;
 
-        vector<ofFbo> k_fbos, y_pyramid, yprime_pyramid;//blur_fbos, grad_fbos;
-        ofFbo *y_fbo, *agent_fbo, *display_fbo, *scratch_fbo, *readback_fbo, *render_fbo;
+        vector<ofxPingPongFbo> k_fbos, y_pyramid, yprime_pyramid;//blur_fbos, grad_fbos;
+        ofxPingPongFbo y_fbo, agent_fbo, display_fbo, scratch_fbo, readback_fbo, render_fbo;
         float frame;
         ofShader shader_blur, shader_resample, shader_rkupdate, shader_display, shader_scale_derivative, shader_post_derivative, shader_grad;
         //ofShader shader_rkderivative, shader_test,,;
