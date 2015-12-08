@@ -100,6 +100,7 @@ void ofApp::setup(){
 	params.add(target_mix.set("target_mix",.5,0,1));
 	params.add(time_scale.set("time_scale",.5));
 	params.add(rot.set("rot",0));
+	params.add(lf_bleed.set("lf_bleed",0,0,1));
 	params.add(blur_initial.set("blur_initial",1));
     params.add(blur_scale.set("blur_scale",1));
 	params.add(bound_clip.set("bound_clip",1));
@@ -118,6 +119,7 @@ void ofApp::setup(){
 	params.add(path_jitter.set("path_jitter", 0));
 	params.add(fade_time.set("fade_time", .5));
 	params.add(path_blur.set("path_blur", 2.));
+	params.add(test_param.set("test_param", 0));
 	seed.addListener(this, &ofApp::initParams);
 
     grad_proj(0,0) = 1;
@@ -413,6 +415,8 @@ void ofApp::derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime
     shader_scale_derivative.setUniform1f("warp_grad", warp_grad);
     shader_scale_derivative.setUniform1f("zoom", zoom);
     shader_scale_derivative.setUniform2f("drift", xdrift, ydrift);
+    shader_scale_derivative.setUniformMatrix4f("color_proj", color_proj);
+    shader_scale_derivative.setUniformMatrix4f("grad_proj", grad_proj);
     yprime.begin();
     ofRect(0, 0, w, h);
     yprime.end();
@@ -486,11 +490,12 @@ void ofApp::rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
     //mov(y, y_pyramid[0]);
 
     //compute pyramid + derivatives of y and accumulate to yprime
-    float sub_blur = 0; //keep track of accumulated blur to keep downsampling consistent
+    float blurred = 0; //keep track of accumulated blur to keep downsampling consistent
     for(int i=0; i<y_pyramid.size()-1; i++){
-        float blur_amt = max(0., blur_scale*scale_factor - sub_blur);
+        float blur_amt = max(0., blur_scale*scale_factor - blurred);
         blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-        sub_blur = (sub_blur + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+        fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+        blurred = (blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
         sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
     }

@@ -103,33 +103,36 @@ class ofApp : public ofBaseApp{
 
         ofParameterGroup params;
 
-        ofParameter<float> blur_initial;
-        ofParameter<float> blur_scale;
-        ofParameter<float> drive;
+        ofParameter<float> lf_bleed; //amount of low frequency information left behind in high-passed bins
+        ofParameter<float> blur_initial; //radius of a blur applied before frequency decomposition, in pixels
+        ofParameter<float> blur_scale; //scale the radius of blur used for low pass filter (determined by fixed scale factor)
+        ofParameter<float> drive; //not in use; shape nonlinearity applied to sum of scales
 
-        ofParameter<float> disp_exponent;
-        ofParameter<float> xdrift;
-        ofParameter<float> ydrift;
-        ofParameter<float> zoom;
-        ofParameter<float> warp_grad;
-        ofParameter<float> warp_color;
-        ofParameter<float> warp_agent;
-        ofParameter<float> agent_drive;
+        ofParameter<float> disp_exponent; //how to scale displacements to compensate for downsampling
+        ofParameter<float> xdrift; //horizontal displacement
+        ofParameter<float> ydrift; //vertical displacement
+        ofParameter<float> zoom; //radial displacement
+        ofParameter<float> warp_grad; //control magnitude of gradient-based displacement
+        ofParameter<float> warp_color; //control magnitude of color-based displacement
+        ofParameter<float> warp_agent; //control magnitude of agent-based displacement
+        ofParameter<float> agent_drive; //shape nonlinearity used to squash agent values
 
-        ofParameter<float> target_sat;
-        ofParameter<float> target_mean;
-        ofParameter<float> target_mix;
-        ofParameter<float> rot;
-        ofParameter<float> bound_clip;
-        ofParameter<float> time_scale;
+        ofParameter<float> target_sat; //target saturation for normalization
+        ofParameter<float> target_mean; //target mean for normalization
+        ofParameter<float> target_mix; //how much to approach the target color when normalizing
+        ofParameter<float> rot; //how much weird color rotation
+        ofParameter<float> time_scale; //scale derivatives/time
+        ofParameter<float> bound_clip; //clamp derivatives to prevent blow up
 
-        ofParameter<float> agent_rate;
-        ofParameter<float> momentum_time;
-        ofParameter<float> path_jitter;
-        ofParameter<float> fade_time;
-        ofParameter<float> path_blur;
+        ofParameter<float> agent_rate; //image widths in Hz if traveling at max velocity in a horizontal line
+        ofParameter<float> momentum_time; //time constant for momentum, in seconds
+        ofParameter<float> path_jitter; //random jitter in agent position, in image widths
+        ofParameter<float> fade_time; //time constant for agent buffer fade, in seconds
+        ofParameter<float> path_blur; //radius of agent buffer blur, in pixels
 
-        ofParameter<int> seed;
+        ofParameter<float> test_param; //general purpose parameter for convenience
+
+        ofParameter<int> seed; //seed for filling matrices below
 
         ofMatrix4x4 grad_proj, color_proj;
 

@@ -21,8 +21,8 @@ uniform	float target_sat;
 uniform	float target_mean;
 uniform float target_mix;
 
-//uniform mat4 color_proj;
-//uniform mat4 grad_proj;
+uniform mat4 color_proj;
+uniform mat4 grad_proj;
 
 out vec4 outputColor;
 
@@ -37,6 +37,9 @@ vec3 sigmoid(vec3 x){
 	return x/(1.+abs(x));
 }
 
+vec3 msigmoid(vec3 x){
+	return x/(1.+length(x));
+}
 /*vec2 color2dir(vec3 c){
 	mat2x3 m;
 	m[0] = normalize(vec3(1.,-.5,-.5));
@@ -109,12 +112,52 @@ vec3 snake_dumb(sampler2D s, inout vec2 p, const int n, const float dt, const ve
 */
 vec3 snake_color(sampler2D s, inout vec2 p, const int n, const float dt){
 	for(int i=0; i<n; i++){
-		p+= dt*color2dir(sample(p, s));
+		p+= dt*color2dir(sample(p,s));
+	}
+	return sample(p, s);
+}
+
+vec3 snake_color_mean(sampler2D s, inout vec2 p, const int n, const float dt){
+	vec3 mean = vec3(0.);
+	for(int i=1; i<=n; i++){
+		mean = mix(mean, sample(p,s), 1./i);
+		p+= dt*color2dir(mean);
+	}
+	return sample(p, s);
+}
+vec3 snake_color_rnn(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
+	vec3 h = vec3(0.);
+	for(int i=1; i<=n; i++){
+		h = msigmoid(h*m+sample(p,y));
+		p+= dt*color2dir(h);
+	}
+	return sample(p, s);
+}
+vec3 snake_color_rnn_vw(sampler2D s, inout vec2 p, const int n, const float dt, const vec3 iw, const vec3 rw){
+	vec3 h = vec3(0.);
+	for(int i=1; i<=n; i++){
+		h = msigmoid(h*rw+sample(p,y)*iw);
+		p+= dt*color2dir(h);
+	}
+	return sample(p, s);
+}
+vec3 snake_color_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, const mat3 w){
+	vec3 h = vec3(0.);
+	for(int i=1; i<=n; i++){
+		h = msigmoid(w*h+sample(p,y));
+		p+= dt*color2dir(h);
 	}
 	return sample(p, s);
 }
 
 vec3 snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
+	vec3 ref = sample(p, y);
+	for(int i=1; i<=n; i++){
+		p+= dt*ascend(p, -ref);
+	}
+	return sample(p,s);
+}
+vec3 snake_variance_mean(sampler2D s, inout vec2 p, const int n, const float dt){
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
 		mean = mix(mean, sample(p,s), 1./i);
@@ -122,12 +165,21 @@ vec3 snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
 	}
 	return sample(p,s);
 }
+vec3 snake_variance_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, const mat3 w){
+	vec3 h = vec3(0.);
+	for(int i=1; i<=n; i++){
+		h = msigmoid(w*h+sample(p,y));
+		p+= dt*ascend(p, h);
+	}
+	return sample(p, s);
+}
 
 vec3 star_variance(sampler2D s, inout vec2 p, const int spokes, const int steps, const float dt){
 	vec3 mean = vec3(0.);
 	vec2 cur_p = p;
 	for(int i=1; i<=spokes; i++){
-		mean = mix(mean, sample(cur_p,s), 1./i);
+		vec3 cur_c = sample(cur_p,s);
+		mean = mix(mean, cur_c, 1./i);
 		cur_p = p;
 		for(int j=0; j<steps; j++)
 			cur_p+= dt*ascend(cur_p, -mean);
@@ -138,11 +190,11 @@ vec3 star_variance(sampler2D s, inout vec2 p, const int spokes, const int steps,
 
 
 void main() {
-/*	mat3 _color_proj, _grad_proj;
+	mat3 _color_proj, _grad_proj;
 	for(int i=0; i<3; i++){
 		_color_proj[i] = color_proj[i].xyz;
 		_grad_proj[i] = grad_proj[i].xyz;
-	}*/
+	}
 
 	vec2 p = gl_FragCoord.xy;
 	vec3 val_y = sample(p,y);
@@ -158,9 +210,19 @@ void main() {
 
 	p += drift*scale_disp;
 
-	p += warp_grad*scale_disp*ascend(p, -sample(p,y));
+	int svsteps = int(abs(warp_grad));
+	float svdt = scale_disp*warp_grad/float(svsteps);
+	//snake_variance_mean(y, p, svsteps, svdt);
+	snake_color_rnn_mw(y, p, svsteps, svdt, _grad_proj);
+	//p += warp_grad*scale_disp*ascend(p, -sample(p,y));
 
-	p += warp_color*scale_disp*color2dir(sample(p,y));
+	int scsteps = int(abs(warp_color));
+	float scdt = scale_disp*warp_color/float(scsteps);
+	//snake_color_mean(y, p, scsteps, scdt);
+	//snake_color_rnn(y, p, scsteps, scdt, 1.);
+	//snake_color_rnn_vw(y, p, scsteps, scdt, _color_proj[0], _color_proj[1]);
+	snake_color_rnn_mw(y, p, scsteps, scdt, _color_proj);
+	//p += warp_color*scale_disp*color2dir(sample(p,y));
 
 
 	val_new = sample(p,y);

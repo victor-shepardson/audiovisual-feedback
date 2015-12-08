@@ -88,8 +88,9 @@ void main() {
 	vec2 dp = warp_agent*msigmoid(agent_drive*ascend(p, vec3(1.)));//sample(p,agents));
 	p += dp;///max(1., length(dp));
 
-	vec3 val_new = msigmoid(drive*sample(p,yprime));
-	//vec3 val_agents = sigmoid(sample(p, agents));//sin(2.*PI*sigmoid(sample(p,agents)/(2.*PI)));//;
+	//vec3 val_new = sin(PI*drive*sample(p,yprime));
+	vec3 val_new = sample(p,yprime);
+	vec3 val_agents = msigmoid(sample(p, agents));//sin(2.*PI*sigmoid(sample(p,agents)/(2.*PI)));//;
 
 	float mean = dot(val_new, vec3(1./3));
 	vec3 centered = val_new - mean;
@@ -99,7 +100,7 @@ void main() {
 		target_mix);
 
 	//val_new += val_agents;
-	//val_new = max(val_new, u2b(val_agents));
+	val_new = max(val_new, u2b(val_agents));
 
 	vec3 d = (val_new - val_y);// + .5 * u2b(val_agents);
 
