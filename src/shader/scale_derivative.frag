@@ -11,9 +11,12 @@ uniform ivec2 size;
 //uniform	float rot;
 //uniform	float bound_gauss;
 //uniform	float bound_clip;
+uniform float disp_exponent;
 uniform float scale;
-uniform float warp;
+uniform float warp_grad;
+uniform float warp_color;
 uniform float zoom;
+uniform vec2 drift;
 uniform	float target_sat;
 uniform	float target_mean;
 uniform float target_mix;
@@ -67,10 +70,9 @@ vec3 sample(in vec2 p, sampler2D s){
 	return texture(s, p*invsize).rgb;
 }
 
-
 //dynamical process in image space, where position influences color
 //(by sampling the image) and color influences position
-vec2 snake_derivative(in vec2 p, const vec3 chan){
+vec2 ascend(in vec2 p, const vec3 chan){
 	vec2 dp_dt;
 	mat2x3 grad;
 	//maybe something clever to be done with caching these lookups
@@ -115,11 +117,25 @@ vec3 snake_color(sampler2D s, inout vec2 p, const int n, const float dt){
 vec3 snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
-		mean = mix(mean, sample(p,s), 1./n);
-		p+= dt*snake_derivative(p, -mean);
+		mean = mix(mean, sample(p,s), 1./i);
+		p+= dt*ascend(p, -mean);
 	}
 	return sample(p,s);
 }
+
+vec3 star_variance(sampler2D s, inout vec2 p, const int spokes, const int steps, const float dt){
+	vec3 mean = vec3(0.);
+	vec2 cur_p = p;
+	for(int i=1; i<=spokes; i++){
+		mean = mix(mean, sample(cur_p,s), 1./i);
+		cur_p = p;
+		for(int j=0; j<steps; j++)
+			cur_p+= dt*ascend(cur_p, -mean);
+	}
+	p = cur_p;
+	return sample(p,s);
+}
+
 
 void main() {
 /*	mat3 _color_proj, _grad_proj;
@@ -136,23 +152,32 @@ void main() {
 
 	//float ss = scale;//sqrt(scale);
 
-	float scale_disp = 1./(scale);
+	float scale_disp = pow(scale, disp_exponent);//1./sqrt(scale);
 
 	p += zoom*scale_disp*normalize(.5*size-p);
 
-	//p += warp*scale_disp*color2dir(sample(p,y));
+	p += drift*scale_disp;
+
+	p += warp_grad*scale_disp*ascend(p, -sample(p,y));
+
+	p += warp_color*scale_disp*color2dir(sample(p,y));
 
 
+	val_new = sample(p,y);
 
-	int n = int(sqrt(scale) + 4.);
-	float dt = 1;
+	//int n = 8;//int(sqrt(scale) + 7.);
+	//float dt = 1;
 
-	vec3 sc = snake_color(y, p, n, warp*scale_disp);
-	vec3 sv = snake_variance(y, p, n, dt);
+	//vec2 pp = p;
+	//vec3 sv = snake_variance(y, pp, n, dt);
+	//vec3 sv = snake_variance(y,p,n,dt);
+	//vec3 sc = snake_color(y, p, n, warp*scale_disp);
+	//p += warp*scale_disp*color2dir(sv);
+	//vec3 sc = sample(p,y);
 
-	val_new = sv;
+	//val_new = sv;//normalize(sc-.5*sv);
 
-	val_new *= 2.;//log(1.+scale);
+	//val_new *= 2.;//log(1.+scale);
 
 //	val_new /= sqrt(scale);
 /*

@@ -29,9 +29,10 @@ vec3 blur(){
 	vec3 acc = vec3(0,0,0);
 	float norm = 0.;
 
-	float inc = r/floor(r);
+	int num = 2*int(ceil(r)); //number of hops == number of samples - 1
+	float inc = 2.*r/(num);
 
-	for(float i= -r; i<=r+.001; i+=inc){
+	for(float i= -r; i<=r+.0001; i+=inc){
 		float x = i*gauss_coeff;
 		float weight = exp(-x*x);
 		acc+= weight*sample(p+i*d);

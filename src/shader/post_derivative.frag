@@ -3,10 +3,15 @@
 uniform sampler2D y;
 uniform sampler2D yprime;
 uniform sampler2D agents;
+uniform sampler2D agradx;
+uniform sampler2D agrady;
 
 uniform float t;
 uniform ivec2 size;
 
+uniform float drive;
+uniform float agent_drive;
+uniform float warp_agent;
 uniform	float target_sat;
 uniform	float target_mean;
 uniform float target_mix;
@@ -30,8 +35,18 @@ vec2 invsize = 1./vec2(size);
 float sigmoid(float x){
 	return x/(1.+abs(x));
 }
+vec2 sigmoid(vec2 x){
+	return x/(1.+abs(x));
+}
 vec3 sigmoid(vec3 x){
 	return x/(1.+abs(x));
+}
+
+vec2 msigmoid(vec2 x){
+	return x/(1.+length(x));
+}
+vec3 msigmoid(vec3 x){
+	return x/(1.+length(x));
 }
 
 //convert between bipolar [-1, 1] and unipolar [0, 1]
@@ -42,33 +57,40 @@ vec3 b2u(vec3 b){
 	return .5*b+.5;
 }
 
+vec2 color2dir(vec3 c){
+	vec3 px = normalize(vec3(1.,-.5,-.5));
+	vec3 py = normalize(vec3(0.,1.,-1.));
+	return vec2(dot(c,px),dot(c,py));
+}
+
 //use a sample function to handle different texture types+topologies
 vec3 sample(in vec2 p, sampler2D s){
 	return texture(s, p*invsize).rgb;
 }
 
+vec2 ascend(in vec2 p, const vec3 chan){
+	vec2 dp_dt;
+	mat2x3 grad;
+	grad[0] = sample(p,agradx);
+	grad[1] = sample(p,agrady);
+
+	dp_dt.x = dot(chan, grad[0]);
+	dp_dt.y = dot(chan, grad[1]);
+	return dp_dt;
+}
+
+
 void main() {
 	vec2 p = gl_FragCoord.xy;
+
 	vec3 val_y = sample(p,y);
-	vec3 val_new = sigmoid(sample(p,yprime));//(2.-pow(2.,1-num_scales));
-	vec3 val_agents = sin(2.*PI*sigmoid(sample(p,agents)/(2.*PI)));//sigmoid(sample(p, agents));
 
-	/*vec3 val_local = .25*(sample(p+vec2(1.,0.), yprime)
-					+sample(p+vec2(-1.,0.), yprime)
-					+sample(p+vec2(0.,1.), yprime)
-					+sample(p+vec2(0.,-1.), yprime));
-	val_new += val_new - val_local;
-	*/
-/*
-	float d_mean = dot(d, vec3(1./3));
-	vec3 d_centered = d - d_mean;
+	vec2 dp = warp_agent*msigmoid(agent_drive*ascend(p, vec3(1.)));//sample(p,agents));
+	p += dp;///max(1., length(dp));
 
-	float y_mean = dot(val_y, vec3(1./3));
-	vec3 y_centered = val_y - y_mean;
+	vec3 val_new = msigmoid(drive*sample(p,yprime));
+	//vec3 val_agents = sigmoid(sample(p, agents));//sin(2.*PI*sigmoid(sample(p,agents)/(2.*PI)));//;
 
-
-	d += (target_sat-length(y_centered))*d_centered;
-*/
 	float mean = dot(val_new, vec3(1./3));
 	vec3 centered = val_new - mean;
 
@@ -76,12 +98,13 @@ void main() {
 		centered/(length(centered)+.001)*target_sat + target_mean,
 		target_mix);
 
-	val_new += val_agents;//val_new = max(val_new, u2b(val_agents));
+	//val_new += val_agents;
+	//val_new = max(val_new, u2b(val_agents));
 
-	vec3 d = (val_new - val_y);
+	vec3 d = (val_new - val_y);// + .5 * u2b(val_agents);
 
 	//approach the new color
-//	vec3 d = (val_new - val_y);// + .2*(sat + norm);// + blur;
+	//	vec3 d = (val_new - val_y);// + .2*(sat + norm);// + blur;
 
 	//some kind of color rotation
 	d = mix(d, sign(rot)*(d.gbr - d.brg), abs(rot));

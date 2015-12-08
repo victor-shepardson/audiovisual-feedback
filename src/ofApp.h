@@ -93,7 +93,8 @@ class ofApp : public ofBaseApp{
         void derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, float scale);
         void derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime);
 
-        void fill(ofxPingPongFbo &dest, ofFloatColor c);
+        void b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest);
+        void fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode = OF_BLENDMODE_ALPHA);
         void blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius);
         void sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest);
         void mov(ofxPingPongFbo &src, ofxPingPongFbo &dest);
@@ -101,21 +102,33 @@ class ofApp : public ofBaseApp{
         void gradients(ofxPingPongFbo &src);
 
         ofParameterGroup params;
+
+        ofParameter<float> blur_initial;
+        ofParameter<float> blur_scale;
+        ofParameter<float> drive;
+
+        ofParameter<float> disp_exponent;
+        ofParameter<float> xdrift;
+        ofParameter<float> ydrift;
+        ofParameter<float> zoom;
+        ofParameter<float> warp_grad;
+        ofParameter<float> warp_color;
+        ofParameter<float> warp_agent;
+        ofParameter<float> agent_drive;
+
         ofParameter<float> target_sat;
         ofParameter<float> target_mean;
         ofParameter<float> target_mix;
-        ofParameter<float> time_scale;
-        ofParameter<float> kernel_width;
-        ofParameter<float> bound_clip;
         ofParameter<float> rot;
-        ofParameter<float> zoom;
-        ofParameter<float> warp;
-        ofParameter<float> blur_size;
+        ofParameter<float> bound_clip;
+        ofParameter<float> time_scale;
+
         ofParameter<float> agent_rate;
         ofParameter<float> momentum_time;
         ofParameter<float> path_jitter;
         ofParameter<float> fade_time;
         ofParameter<float> path_blur;
+
         ofParameter<int> seed;
 
         ofMatrix4x4 grad_proj, color_proj;
@@ -127,7 +140,7 @@ class ofApp : public ofBaseApp{
         ofFbo::Settings fbo_params;
 
         vector<ofxPingPongFbo> k_fbos, y_pyramid, yprime_pyramid;//blur_fbos, grad_fbos;
-        ofxPingPongFbo y_fbo, agent_fbo, display_fbo, scratch_fbo, readback_fbo, render_fbo;
+        ofxPingPongFbo y_fbo, agent_fbo, display_fbo, readback_fbo, render_fbo;
         float frame;
         ofShader shader_blur, shader_resample, shader_rkupdate, shader_display, shader_scale_derivative, shader_post_derivative, shader_grad;
         //ofShader shader_rkderivative, shader_test,,;

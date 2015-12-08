@@ -28,12 +28,15 @@ void ofxPingPongFbo::allocate(ofFbo::Settings s){
     settings = s;
 }
 void ofxPingPongFbo::save(){
+    //if(!aux->isAllocated()) aux->allocate(settings);
     aux->begin();
     ping->draw(0,0);
     aux->end();
 }
 void ofxPingPongFbo::restore(){
+    ofFbo *temp = ping;
     ping = aux;
+    aux = temp;
 }
 void ofxPingPongFbo::draw(int x,int y,int w,int h){
     ping->draw(x,y,w,h);
@@ -51,6 +54,7 @@ int ofxPingPongFbo::getHeight(){
     return settings.height;
 }
 void ofxPingPongFbo::begin(){
+    //if(!pong->isAllocated()) pong->allocate(settings);
     pong->begin();
 }
 void ofxPingPongFbo::end(){
@@ -91,17 +95,24 @@ void ofxPingPongFbo::activateAllDrawBuffers(){
 
 void ofApp::setup(){
     params.setName("params");
-	params.add(target_sat.set("target_sat",.7));
-	params.add(target_mean.set("target_mean",-.5));
-	params.add(target_mix.set("target_mix",.1,0,1));
-	params.add(time_scale.set("time_scale",.2));
-	params.add(rot.set("rot",.66));
-	params.add(blur_size.set("blur_size",2));
-	params.add(kernel_width.set("kernel_width",3));
-	params.add(bound_clip.set("bound_clip",1.5));
+	params.add(target_sat.set("target_sat",1));
+	params.add(target_mean.set("target_mean",0));
+	params.add(target_mix.set("target_mix",.5,0,1));
+	params.add(time_scale.set("time_scale",.5));
+	params.add(rot.set("rot",0));
+	params.add(blur_initial.set("blur_initial",1));
+    params.add(blur_scale.set("blur_scale",1));
+	params.add(bound_clip.set("bound_clip",1));
 	params.add(seed.set("seed",0));
-	params.add(warp.set("warp",0));
+	params.add(disp_exponent.set("disp_exponent",0));
+    params.add(warp_agent.set("warp_agent",0));
+    params.add(agent_drive.set("agent_drive",1));
+    params.add(drive.set("drive",1));
+	params.add(warp_color.set("warp_color",0));
+    params.add(warp_grad.set("warp_grad",0));
 	params.add(zoom.set("zoom",0));
+    params.add(xdrift.set("xdrift",0));
+    params.add(ydrift.set("ydrift",0));
 	params.add(agent_rate.set("agent_rate",30.));
 	params.add(momentum_time.set("momentum_time",.00003));
 	params.add(path_jitter.set("path_jitter", 0));
@@ -182,7 +193,7 @@ void ofApp::setup(){
     disp_buf = 0;
 
     num_scales = 4;
-    scale_factor = 3;
+    scale_factor = 4;
 
     allocateFbos();
 
@@ -242,16 +253,16 @@ void ofApp::allocateFbos(){
 
     y_fbo = ofxPingPongFbo();
     y_fbo.allocate(fbo_params);
+
     display_fbo = ofxPingPongFbo();
     display_fbo.allocate(fbo_params);
-    scratch_fbo = ofxPingPongFbo();
-    scratch_fbo.allocate(fbo_params);
     render_fbo = ofxPingPongFbo();
     render_fbo.allocate(fbo_params);
 
     ofFbo::Settings agent_fbo_params = fbo_params;
     agent_fbo_params.width *= oversample_waveform;
     agent_fbo_params.height *= oversample_waveform;
+    agent_fbo_params.numColorbuffers = 3;
     agent_fbo = ofxPingPongFbo();
     agent_fbo.allocate(agent_fbo_params);
 
@@ -277,7 +288,6 @@ void ofApp::setResolution(int x, int y){
         yprime_pyramid[i].destroy();
     yprime_pyramid.clear();
 
-    scratch_fbo.destroy();
     display_fbo.destroy();
     readback_fbo.destroy();
 
@@ -316,10 +326,16 @@ void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
         shader_resample.end();
     }
 }
-void ofApp::fill(ofxPingPongFbo &dest, ofFloatColor c){
+void ofApp::b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    if(&src!=&dest)
+        mov(src, dest);
+    fill(dest, ofFloatColor(1,1,1,1), OF_BLENDMODE_ADD);
+    fill(dest, ofFloatColor(0,0,0,.5));
+}
+void ofApp::fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode){
     ofPushStyle();
     ofFill();
-    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    ofEnableBlendMode(mode);
     ofSetColor(c);
     dest.beginInPlace();
     ofRect(0, 0, dest.getWidth(), dest.getHeight());
@@ -327,6 +343,11 @@ void ofApp::fill(ofxPingPongFbo &dest, ofFloatColor c){
     ofPopStyle();
 }
 void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
+    if(radius<=0){
+        if(&dest != &src)
+            mov(src, dest);
+        return;
+    }
     int w = dest.getWidth(), h = dest.getHeight();
     shader_blur.begin();
     shader_blur.setUniformTexture("state", src.getTextureReference(),0);
@@ -387,8 +408,11 @@ void ofApp::derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime
     shader_scale_derivative.setUniformTexture("ygrad", y.getTextureReference(2),2);
     shader_scale_derivative.setUniform2i("size", w, h);
     shader_scale_derivative.setUniform1f("scale", scale);
-    shader_scale_derivative.setUniform1f("warp", warp);
+    shader_scale_derivative.setUniform1f("disp_exponent", disp_exponent);
+    shader_scale_derivative.setUniform1f("warp_color", warp_color);
+    shader_scale_derivative.setUniform1f("warp_grad", warp_grad);
     shader_scale_derivative.setUniform1f("zoom", zoom);
+    shader_scale_derivative.setUniform2f("drift", xdrift, ydrift);
     yprime.begin();
     ofRect(0, 0, w, h);
     yprime.end();
@@ -400,8 +424,13 @@ void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, o
     shader_post_derivative.setUniform1f("t",t);
     shader_post_derivative.setUniformTexture("y", y.getTextureReference(),0);
     shader_post_derivative.setUniformTexture("yprime", yprime.getTextureReference(),1);
-    shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(),2);
+    shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(0),2);
+    shader_post_derivative.setUniformTexture("agradx", agent_fbo.getTextureReference(1),3);
+    shader_post_derivative.setUniformTexture("agrady", agent_fbo.getTextureReference(2),4);
     shader_post_derivative.setUniform2i("size", w, h);
+    shader_post_derivative.setUniform1f("warp_agent",warp_agent);
+    shader_post_derivative.setUniform1f("agent_drive",agent_drive);
+    shader_post_derivative.setUniform1f("drive",drive);
     shader_post_derivative.setUniform1f("time_scale",time_scale);
     shader_post_derivative.setUniform1f("rot",rot);
     shader_post_derivative.setUniform1f("bound_clip",bound_clip);
@@ -433,7 +462,7 @@ void ofApp::rkUpdate(float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k, ofx
     shader_rkupdate.end();
 }
 
-//get next y from y,dt,k and store in new_y
+// y := y+k*dt
 void ofApp::rkUpdate(float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &new_y){
     int w = y.getWidth();
     int h = y.getHeight();
@@ -453,15 +482,19 @@ void ofApp::rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
     int w = y.getWidth();
     int h = y.getHeight();
 
-    mov(y, y_pyramid[0]);
+    blur(y, y_pyramid[0], blur_initial);
+    //mov(y, y_pyramid[0]);
 
     //compute pyramid + derivatives of y and accumulate to yprime
+    float sub_blur = 0; //keep track of accumulated blur to keep downsampling consistent
     for(int i=0; i<y_pyramid.size()-1; i++){
-        blur(y_pyramid[i], yprime_pyramid[i], 2.*scale_factor); //using yprime_pyramid[i] as scratch
+        float blur_amt = max(0., blur_scale*scale_factor - sub_blur);
+        blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+        sub_blur = (sub_blur + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
         sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
     }
-   for(int i=0; i<y_pyramid.size(); i++){
+    for(int i=0; i<y_pyramid.size()-1; i++){ //<------ NOTE: largest scale is turned off
         float scale = pow(scale_factor,i);
         gradients(y_pyramid[i]);
         derivativeAtScale(t, y_pyramid[i], yprime_pyramid[i], scale);
@@ -474,15 +507,21 @@ void ofApp::rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
         }
     }
 
+    //resample(*y_pyramid.rbegin(), y_pyramid[0]);
+
     //further (local) processing of derivative
     derivativePost(t, y, yprime, yprime);
 }
 
-//compute f(t+dt, y+dt*k) and store in yprime
+//compute y' = f(t+dt, y+dt*k)
 void ofApp::rkStep(float t, float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &yprime){
     if(dt>0){
-        rkUpdate(dt, y, k, scratch_fbo); //using scratch_fbo to store y+k*dt
-        rkDerivative(t+dt, scratch_fbo, yprime);
+        y.save();
+        rkUpdate(dt, y, k, y);
+        rkDerivative(t+dt, y, yprime);
+        y.restore();
+        //rkUpdate(dt, y, k, scratch_fbo); //using scratch_fbo to store y+k*dt
+        //rkDerivative(t+dt, scratch_fbo, yprime);
     }
     else{
         rkDerivative(t, y, yprime);
@@ -524,19 +563,65 @@ void ofApp::draw(){
     vwt->draw(0, 0, aw, ah);
     agent_fbo.endInPlace();
     blur(agent_fbo, agent_fbo, path_blur);
+    gradients(agent_fbo);
 
     rungeKutta(frame, 1, y_fbo, k_fbos);
 
-    display_fbo.begin();
-    shader_display.begin();
-    shader_display.setUniform2i("size", display_fbo.getWidth(), display_fbo.getHeight());
-    shader_display.setUniformTexture("state", y_fbo.getTextureReference(),0);
-    ofRect(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
-    shader_display.end();
-    display_fbo.end();
+    int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
+    switch(disp_mode){
+        case 0:
+            shader_display.begin();
+            shader_display.setUniform2i("size", display_fbo.getWidth(), display_fbo.getHeight());
+            shader_display.setUniformTexture("state", y_fbo.getTextureReference(),0);
+            display_fbo.begin();
+            ofRect(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
+            display_fbo.end();
+            shader_display.end();
+            break;
+        case 1:
+            resample(agent_fbo, display_fbo);
+            break;
+        case 2:
+            if(!disp_scale)
+                mov(yprime_pyramid[disp_scale], display_fbo);
+            else
+                resample(yprime_pyramid[disp_scale], display_fbo);
+            b2u(display_fbo, display_fbo);
+            break;
+        case 3:
+            mov(k_fbos[0], display_fbo);
+            b2u(display_fbo, display_fbo);
+            break;
+        case 4:
+            mov(y_fbo, display_fbo);
+            b2u(display_fbo, display_fbo);
+            break;
+/*        case 4:
+            shader_display.begin();
+            shader_display.setUniform2i("size",ww,wh);
+            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(1),0);
+            ofRect(0,0,ww,wh);
+            shader_display.end();
+            break;
+        case 5:
+            shader_display.begin();
+            shader_display.setUniform2i("size",ww,wh);
+            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(2),0);
+            ofRect(0,0,ww,wh);
+            shader_display.end();
+            break;
+            */
+    }
+    display_fbo.draw(0,0,ww,wh);
 
     //read pixels back from video memory and put a new frame in the VWT
-    mov(display_fbo, readback_fbo);
+    if(undersample_terrain > 1){
+        resample(y_fbo, readback_fbo);
+        b2u(readback_fbo, readback_fbo);
+    }
+    else{
+        b2u(y_fbo, readback_fbo);
+    }
     ofFloatPixels pix;
     readback_fbo.readToPixels(pix,0);
     vwt->insert_frame(pix);
@@ -590,51 +675,6 @@ void ofApp::draw(){
             ofImage(pix).saveImage(camera_fname.str());
         }*/
 
-    }
-
-    int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
-    switch(disp_mode){
-        case 0:
-            display_fbo.draw(0,0,ww,wh);
-            break;
-        case 1:
-            agent_fbo.draw(0,0,ww,wh);
-            break;
-        case 2:
-            if(use_camera) camera.draw(0,0,ww,wh);
-            else{
-                if(!disp_scale)
-                    mov(yprime_pyramid[disp_scale], display_fbo);
-                else
-                    resample(yprime_pyramid[disp_scale], display_fbo);
-                shader_display.begin();
-                shader_display.setUniform2i("size",ww,wh);
-                shader_display.setUniformTexture("state", display_fbo.getTextureReference(),0);
-                ofRect(0,0,ww,wh);
-                shader_display.end();
-            }
-            break;
-        case 3:
-            shader_display.begin();
-            shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", k_fbos[0].getTextureReference(),0);
-            ofRect(0,0,ww,wh);
-            shader_display.end();
-            break;
-        case 4:
-            shader_display.begin();
-            shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(1),0);
-            ofRect(0,0,ww,wh);
-            shader_display.end();
-            break;
-        case 5:
-            shader_display.begin();
-            shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(2),0);
-            ofRect(0,0,ww,wh);
-            shader_display.end();
-            break;
     }
 
     frame++;
@@ -739,7 +779,7 @@ void ofApp::keyPressed(int key){
         cout<<"display buffer: "<<disp_buf<<endl;
     }*/
     if(key=='d'){
-        disp_mode = ofWrap(disp_mode+1, 0, 6);
+        disp_mode = ofWrap(disp_mode+1, 0, 5);
         cout<<"display mode: "<<disp_mode<<endl;
     }
     if(key=='f'){

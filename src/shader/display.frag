@@ -44,6 +44,17 @@ void main() {
 
 	//color = clamp(color, -PI*.5, PI*.5);
 	//color = sin(color);
+
+
+	float red = dot(color, normalize(vec3(1., -1., -1.)));
+	float green = dot(color, normalize(vec3(-1., 1., -1.)));
+	float blue = dot(color, normalize(vec3(-1., -1., 1.)));
+	float cyan = dot(color, normalize(vec3(-1., 1., 1.)));
+	float magenta = dot(color, normalize(vec3(1., -1., 1.)));
+	float yellow = dot(color, normalize(vec3(1., 1., -1.)));
+
+	color = (1./3.9)*vec3(.6*green + .9*yellow + .7*cyan - .5*blue - magenta - .3*red);
+
 	color = clamp(color, -1., 1.);
 	color = b2u(color);
 
