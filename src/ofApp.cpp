@@ -111,9 +111,13 @@ void ofApp::setup(){
     params.add(drive.set("drive",1));
 	params.add(warp_color.set("warp_color",0));
     params.add(warp_grad.set("warp_grad",0));
-	params.add(zoom.set("zoom",0));
+	params.add(zoom.set("zoom",1));
+	params.add(swirl.set("swirl",0));
+	params.add(suck.set("suck", 0));
     params.add(xdrift.set("xdrift",0));
     params.add(ydrift.set("ydrift",0));
+    params.add(mirror_amt.set("mirror_amt",0,0,1));
+    params.add(mirror_shape.set("mirror_shape",0,0,1));
 	params.add(agent_rate.set("agent_rate",30.));
 	params.add(momentum_time.set("momentum_time",.00003));
 	params.add(path_jitter.set("path_jitter", 0));
@@ -414,7 +418,11 @@ void ofApp::derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime
     shader_scale_derivative.setUniform1f("warp_color", warp_color);
     shader_scale_derivative.setUniform1f("warp_grad", warp_grad);
     shader_scale_derivative.setUniform1f("zoom", zoom);
+    shader_scale_derivative.setUniform1f("suck", suck);
+    shader_scale_derivative.setUniform1f("swirl", swirl);
     shader_scale_derivative.setUniform2f("drift", xdrift, ydrift);
+    shader_scale_derivative.setUniform1f("mirror_amt", mirror_amt);
+    shader_scale_derivative.setUniform1f("mirror_shape", mirror_shape);
     shader_scale_derivative.setUniformMatrix4f("color_proj", color_proj);
     shader_scale_derivative.setUniformMatrix4f("grad_proj", grad_proj);
     yprime.begin();

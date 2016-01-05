@@ -111,7 +111,11 @@ class ofApp : public ofBaseApp{
         ofParameter<float> disp_exponent; //how to scale displacements to compensate for downsampling
         ofParameter<float> xdrift; //horizontal displacement
         ofParameter<float> ydrift; //vertical displacement
-        ofParameter<float> zoom; //radial displacement
+        ofParameter<float> zoom; //scale around center
+        ofParameter<float> suck; //radial displacement
+        ofParameter<float> swirl; //perpendicular to suck
+        ofParameter<float> mirror_shape; //interpolate horizontal/radial
+        ofParameter<float> mirror_amt; //mix amount
         ofParameter<float> warp_grad; //control magnitude of gradient-based displacement
         ofParameter<float> warp_color; //control magnitude of color-based displacement
         ofParameter<float> warp_agent; //control magnitude of agent-based displacement

@@ -16,10 +16,14 @@ uniform float scale;
 uniform float warp_grad;
 uniform float warp_color;
 uniform float zoom;
+uniform float swirl;
+uniform float suck;
 uniform vec2 drift;
 uniform	float target_sat;
 uniform	float target_mean;
 uniform float target_mix;
+uniform float mirror_shape;
+uniform float mirror_amt;
 
 uniform mat4 color_proj;
 uniform mat4 grad_proj;
@@ -206,7 +210,13 @@ void main() {
 
 	float scale_disp = pow(scale, disp_exponent);//1./sqrt(scale);
 
-	p += zoom*scale_disp*normalize(.5*size-p);
+	vec2 radial = normalize(.5*size-p);
+
+	p = size*(zoom*(p*invsize-.5)+.5);
+
+	p += suck*scale_disp*radial;
+
+	p += swirl*scale_disp*vec2(radial.y, -radial.x);
 
 	p += drift*scale_disp;
 
@@ -224,8 +234,32 @@ void main() {
 	snake_color_rnn_mw(y, p, scsteps, scdt, _color_proj);
 	//p += warp_color*scale_disp*color2dir(sample(p,y));
 
+	//float vdfc = 2.*abs(p.y*invsize.y-.5);
+
+	float rdfc = 2.*length(p*invsize-.5);
 
 	val_new = sample(p,y);
+
+	//mirror
+	vec2 mirror_coord = vec2(size-p);//vec2(size.x-p.x, p.y);
+	mirror_coord.y = mix(mirror_coord.y, p.y, mirror_shape);
+	vec3 val_mirror = sample(mirror_coord, y);
+	float mirror_amt = .5*pow(max(0.,1.-rdfc), 2);
+	val_new = mix(val_new, val_mirror, .5*mirror_amt);
+
+	/*vec3 val_knead;
+	if(p.x/float(size.x)<.5)
+		val_knead = sample(vec2(2.*p.x,p.y),y);
+	else
+		val_knead = sample(vec2(2.*(float(size.x)-p.x), p.y), y);
+	val_new = mix(val_new, val_knead, .5);
+	*/
+
+	//knead
+	//vec2 p1 = vec2(.667,1.)*p;
+	//vec2 p2 = vec2(.667,1.)*vec2(float(size.x)-p.x, p.y);
+	//val_new = mix(sample(p1,y), sample(p2,y),.5);
+
 
 	//int n = 8;//int(sqrt(scale) + 7.);
 	//float dt = 1;

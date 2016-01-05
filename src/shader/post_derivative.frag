@@ -88,8 +88,17 @@ void main() {
 	vec2 dp = warp_agent*msigmoid(agent_drive*ascend(p, vec3(1.)));//sample(p,agents));
 	p += dp;///max(1., length(dp));
 
+	//center square
+	/*vec2 pc = p - .5*vec2(size);
+	if(max(abs(pc.x), abs(pc.y))<.33*min(size.x,size.y))
+		pc*=1.5;
+	p = pc+.5*size;
+	*/
+
 	//vec3 val_new = sin(PI*drive*sample(p,yprime));
 	vec3 val_new = sample(p,yprime);
+	//vec3 val_new = u2b(fract(drive*b2u(sample(p,yprime))));
+
 	vec3 val_agents = msigmoid(sample(p, agents));//sin(2.*PI*sigmoid(sample(p,agents)/(2.*PI)));//;
 
 	float mean = dot(val_new, vec3(1./3));
