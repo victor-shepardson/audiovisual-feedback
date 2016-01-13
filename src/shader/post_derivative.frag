@@ -1,7 +1,7 @@
 #version 150
 
 uniform sampler2D y;
-uniform sampler2D yprime;
+uniform sampler2D ynew;
 uniform sampler2D agents;
 uniform sampler2D agradx;
 uniform sampler2D agrady;
@@ -96,7 +96,7 @@ void main() {
 	*/
 
 	//vec3 val_new = sin(PI*drive*sample(p,yprime));
-	vec3 val_new = sample(p,yprime);
+	vec3 val_new = sample(p,ynew);
 	//vec3 val_new = u2b(fract(drive*b2u(sample(p,yprime))));
 
 	vec3 val_agents = msigmoid(sample(p, agents));//sin(2.*PI*sigmoid(sample(p,agents)/(2.*PI)));//;

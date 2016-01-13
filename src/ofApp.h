@@ -90,9 +90,10 @@ class ofApp : public ofBaseApp{
         void rungeKutta(float t, float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k);
 
         void resample(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, float scale);
+        void processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale);
         void derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime);
 
+        void scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest);
         void b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode = OF_BLENDMODE_ALPHA);
         void blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius);
@@ -149,7 +150,9 @@ class ofApp : public ofBaseApp{
         vector<ofxPingPongFbo> k_fbos, y_pyramid, yprime_pyramid;//blur_fbos, grad_fbos;
         ofxPingPongFbo y_fbo, agent_fbo, display_fbo, readback_fbo, render_fbo;
         float frame;
-        ofShader shader_blur, shader_resample, shader_rkupdate, shader_display, shader_scale_derivative, shader_post_derivative, shader_grad;
+        ofShader shader_blur, shader_resample, shader_rkupdate, shader_display,
+            shader_multiscale, shader_post_derivative, shader_grad,
+            shader_scale_add;
         //ofShader shader_rkderivative, shader_test,,;
 
         int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, undersample_terrain, num_scales;
@@ -168,5 +171,7 @@ class ofApp : public ofBaseApp{
         ofstream audio_file;
 
         ofDirectory cur_save_dir;
+
+        ofSoundStream ss;
 };
 

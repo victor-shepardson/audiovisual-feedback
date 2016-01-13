@@ -178,9 +178,10 @@ void ofApp::setup(){
     shader_grad.load(ofToDataPath("../../src/shader/grad"));
     shader_display.load(ofToDataPath("../../src/shader/display"));
     //shader_rkderivative.load(ofToDataPath("../../src/shader/rkderivative"));
-    shader_scale_derivative.load(ofToDataPath("../../src/shader/scale_derivative"));
+    shader_multiscale.load(ofToDataPath("../../src/shader/multiscale"));
     shader_post_derivative.load(ofToDataPath("../../src/shader/post_derivative"));
     //shader_test.load(ofToDataPath("../../src/shader/test"));
+    shader_scale_add.load(ofToDataPath("../../src/shader/scale_add"));
 
     fbo_params = ofFbo::Settings(); //needs to come after the ofDisable* above
     fbo_params.width = realtime_width;
@@ -208,14 +209,17 @@ void ofApp::setup(){
 
     channels = 2;
     frame_rate = 24;
-    sample_rate = 48000;
+    sample_rate = 44100;
     audio_delay = .5;
     int frames_to_keep = 100;
 
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
-    ofSoundStreamSetup(2, 0, this, sample_rate, 256, 4);
+    ss.setDeviceID(2);
+    ss.setup(this, 2, 0, sample_rate, 256, 4);
+    //ss.start();
+    //ofSoundStreamSetup(2, 0, this, sample_rate, 256, 4);
 
     if(use_camera){
         camera.setVerbose(true);
@@ -370,14 +374,28 @@ void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
     shader_blur.end();
 }
 void ofApp::sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest){
-    ofPushStyle();
+    /*ofPushStyle();
     if(&dest!=&pos)
         mov(pos,dest);
     ofEnableBlendMode(OF_BLENDMODE_SUBTRACT);
     dest.beginInPlace();
     neg.draw(0,0,dest.getWidth(), dest.getHeight());
     dest.endInPlace();
-    ofPopStyle();
+    ofPopStyle();*/
+    scale_add(1,pos,-1,neg,dest);
+}
+void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest){
+    int w = dest.getWidth(), h = dest.getHeight();
+    shader_scale_add.begin();
+    shader_scale_add.setUniformTexture("x",x.getTextureReference(),0);
+    shader_scale_add.setUniformTexture("y",y.getTextureReference(),1);
+    shader_scale_add.setUniform2i("size", w, h);
+    shader_scale_add.setUniform1f("a",a);
+    shader_scale_add.setUniform1f("b",b);
+    dest.beginInPlace();
+    ofRect(0,0,w,h);
+    dest.endInPlace();
+    shader_scale_add.end();
 }
 //mov is style-agnostic
 void ofApp::mov(ofxPingPongFbo &src, ofxPingPongFbo &dest){
@@ -405,37 +423,38 @@ void ofApp::gradients(ofxPingPongFbo &src){
     shader_grad.end();
 }
 
-void ofApp::derivativeAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, float scale){
+void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale){
     int w = y.getWidth(), h = y.getHeight();
-    shader_scale_derivative.begin();
-    shader_scale_derivative.setUniform1f("t",t);
-    shader_scale_derivative.setUniformTexture("y", y.getTextureReference(0),0);
-    shader_scale_derivative.setUniformTexture("xgrad", y.getTextureReference(1),1);
-    shader_scale_derivative.setUniformTexture("ygrad", y.getTextureReference(2),2);
-    shader_scale_derivative.setUniform2i("size", w, h);
-    shader_scale_derivative.setUniform1f("scale", scale);
-    shader_scale_derivative.setUniform1f("disp_exponent", disp_exponent);
-    shader_scale_derivative.setUniform1f("warp_color", warp_color);
-    shader_scale_derivative.setUniform1f("warp_grad", warp_grad);
-    shader_scale_derivative.setUniform1f("zoom", zoom);
-    shader_scale_derivative.setUniform1f("suck", suck);
-    shader_scale_derivative.setUniform1f("swirl", swirl);
-    shader_scale_derivative.setUniform2f("drift", xdrift, ydrift);
-    shader_scale_derivative.setUniform1f("mirror_amt", mirror_amt);
-    shader_scale_derivative.setUniform1f("mirror_shape", mirror_shape);
-    shader_scale_derivative.setUniformMatrix4f("color_proj", color_proj);
-    shader_scale_derivative.setUniformMatrix4f("grad_proj", grad_proj);
+    shader_multiscale.begin();
+    shader_multiscale.setUniform1f("t",t);
+    shader_multiscale.setUniformTexture("y", y.getTextureReference(0),0);
+    shader_multiscale.setUniformTexture("xgrad", y.getTextureReference(1),1);
+    shader_multiscale.setUniformTexture("ygrad", y.getTextureReference(2),2);
+    shader_multiscale.setUniformTexture("modulation", m.getTextureReference(), 3);
+    shader_multiscale.setUniform2i("size", w, h);
+    shader_multiscale.setUniform1f("scale", scale);
+    shader_multiscale.setUniform1f("disp_exponent", disp_exponent);
+    shader_multiscale.setUniform1f("warp_color", warp_color);
+    shader_multiscale.setUniform1f("warp_grad", warp_grad);
+    shader_multiscale.setUniform1f("zoom", zoom);
+    shader_multiscale.setUniform1f("suck", suck);
+    shader_multiscale.setUniform1f("swirl", swirl);
+    shader_multiscale.setUniform2f("drift", xdrift, ydrift);
+    shader_multiscale.setUniform1f("mirror_amt", mirror_amt);
+    shader_multiscale.setUniform1f("mirror_shape", mirror_shape);
+    shader_multiscale.setUniformMatrix4f("color_proj", color_proj);
+    shader_multiscale.setUniformMatrix4f("grad_proj", grad_proj);
     yprime.begin();
     ofRect(0, 0, w, h);
     yprime.end();
-    shader_scale_derivative.end();
+    shader_multiscale.end();
 }
 void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime){
     int w = y.getWidth(), h = y.getHeight();
     shader_post_derivative.begin();
     shader_post_derivative.setUniform1f("t",t);
     shader_post_derivative.setUniformTexture("y", y.getTextureReference(),0);
-    shader_post_derivative.setUniformTexture("yprime", yprime.getTextureReference(),1);
+    shader_post_derivative.setUniformTexture("ynew", yprime.getTextureReference(),1);
     shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(0),2);
     shader_post_derivative.setUniformTexture("agradx", agent_fbo.getTextureReference(1),3);
     shader_post_derivative.setUniformTexture("agrady", agent_fbo.getTextureReference(2),4);
@@ -498,19 +517,23 @@ void ofApp::rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
     //mov(y, y_pyramid[0]);
 
     //compute pyramid + derivatives of y and accumulate to yprime
-    float blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+    float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
     for(int i=0; i<y_pyramid.size()-1; i++){
-        float blur_amt = max(0., blur_scale*scale_factor - blurred);
+        float blur_amt = max(0., blur_scale*scale_factor - amt_blurred);
         blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-        fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-        blurred = (blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
-        sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+       // fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+        amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
     }
     for(int i=0; i<y_pyramid.size()-1; i++){ //<------ NOTE: largest scale is turned off
         float scale = pow(scale_factor,i);
         gradients(y_pyramid[i]);
-        derivativeAtScale(t, y_pyramid[i], yprime_pyramid[i], scale);
+        processingAtScale(t, y_pyramid[i], y_pyramid[i+1], yprime_pyramid[i], scale);
+       // float n = y_pyramid.size()-1;
+        //float w = ((float(i)/(n-1)-.5)*lf_bleed+.5)/n;
+        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,1.-w), OF_BLENDMODE_ALPHA); //weight scales according to lf_
         if(!i){
             mov(yprime_pyramid[i], yprime);
         }

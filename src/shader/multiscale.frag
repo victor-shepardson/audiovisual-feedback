@@ -3,6 +3,7 @@
 uniform sampler2D y;
 uniform sampler2D xgrad;
 uniform sampler2D ygrad;
+uniform sampler2D modulation;
 
 uniform float t;
 uniform ivec2 size;
@@ -55,7 +56,6 @@ vec2 color2dir(vec3 c){
 	vec3 py = normalize(vec3(0.,1.,-1.));
 	return vec2(dot(c,px),dot(c,py));
 }
-
 
 vec2 pol2car(vec2 pol){
 	return pol.x*vec2(cos(pol.y), sin(pol.y));
@@ -202,6 +202,7 @@ void main() {
 
 	vec2 p = gl_FragCoord.xy;
 	vec3 val_y = sample(p,y);
+	vec3 val_m = val_y;//sample(p, modulation);
 	//vec3 val_agents = sigmoid(sample(p, agents));
 	
 	vec3 val_new;
@@ -210,20 +211,27 @@ void main() {
 
 	float scale_disp = pow(scale, disp_exponent);//1./sqrt(scale);
 
-	vec2 radial = normalize(.5*size-p);
+	vec2 radial = .5-p*invsize;
+	float rdfc = 2.*length(radial);
+	radial = normalize(radial);
+	vec2 perp_radial = vec2(radial.x, -radial.y);
 
-	p = size*(zoom*(p*invsize-.5)+.5);
+	float _zoom = pow(2., zoom*val_m.r);
+	p = size*(_zoom*(p*invsize-.5)+.5);
 
-	p += suck*scale_disp*radial;
+	p += suck*scale_disp*radial*val_m.g;
+	//p += suck*scale_disp*radial;
 
-	p += swirl*scale_disp*vec2(radial.y, -radial.x);
+	p += swirl*scale_disp*perp_radial*val_m.b;
+	//p += swirl*scale_disp*perp_radial;
 
+	//p += drift*scale_disp*sample(p, modulation).rg;
 	p += drift*scale_disp;
 
 	int svsteps = int(abs(warp_grad));
 	float svdt = scale_disp*warp_grad/float(svsteps);
 	//snake_variance_mean(y, p, svsteps, svdt);
-	snake_color_rnn_mw(y, p, svsteps, svdt, _grad_proj);
+	snake_color_rnn_mw(modulation, p, svsteps, svdt, _grad_proj);
 	//p += warp_grad*scale_disp*ascend(p, -sample(p,y));
 
 	int scsteps = int(abs(warp_color));
@@ -231,12 +239,8 @@ void main() {
 	//snake_color_mean(y, p, scsteps, scdt);
 	//snake_color_rnn(y, p, scsteps, scdt, 1.);
 	//snake_color_rnn_vw(y, p, scsteps, scdt, _color_proj[0], _color_proj[1]);
-	snake_color_rnn_mw(y, p, scsteps, scdt, _color_proj);
+	snake_color_rnn_mw(modulation, p, scsteps, scdt, _color_proj);
 	//p += warp_color*scale_disp*color2dir(sample(p,y));
-
-	//float vdfc = 2.*abs(p.y*invsize.y-.5);
-
-	float rdfc = 2.*length(p*invsize-.5);
 
 	val_new = sample(p,y);
 
