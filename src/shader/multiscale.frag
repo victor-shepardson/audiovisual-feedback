@@ -216,8 +216,8 @@ void main() {
 	radial = normalize(radial);
 	vec2 perp_radial = vec2(radial.x, -radial.y);
 
-	float _zoom = pow(2., zoom*val_m.r);
-	p = size*(_zoom*(p*invsize-.5)+.5);
+	//float _zoom = pow(2., zoom*val_m.r);
+	p = size*(zoom*(p*invsize-.5)+.5);
 
 	p += suck*scale_disp*radial*val_m.g;
 	//p += suck*scale_disp*radial;
@@ -248,8 +248,8 @@ void main() {
 	vec2 mirror_coord = vec2(size-p);//vec2(size.x-p.x, p.y);
 	mirror_coord.y = mix(mirror_coord.y, p.y, mirror_shape);
 	vec3 val_mirror = sample(mirror_coord, y);
-	float mirror_amt = .5*pow(max(0.,1.-rdfc), 2);
-	val_new = mix(val_new, val_mirror, .5*mirror_amt);
+	float _mirror_amt = mirror_amt*.5*pow(max(0.,1.-rdfc), 2);
+	val_new = mix(val_new, val_mirror, _mirror_amt);
 
 	/*vec3 val_knead;
 	if(p.x/float(size.x)<.5)

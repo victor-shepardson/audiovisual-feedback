@@ -53,6 +53,37 @@ private:
     ofFbo *ping, *pong, *aux;
 };
 
+template <class T>
+class ofxDynamicalTexture{
+public:
+    static ofShader shader_rkupdate;
+    ofxPingPongFbo y;
+    vector<ofxPingPongFbo> k;
+    ofxDynamicalTexture(T *app, void (T::*derivative)(float, ofxPingPongFbo&, ofxPingPongFbo&));
+    void allocate(ofFbo::Settings);
+    void destroy();
+    void tick(float t, float dt, int i);
+    void tock(float dt);
+private:
+    T *app;
+    void (T::*derivative)(float, ofxPingPongFbo&, ofxPingPongFbo&);
+    void rkUpdate(float dt, int i);
+    void rkUpdate(float dt);
+    void rkStep(float t, float dt, int i);
+};
+
+//manages a numerical integration algorithm with derivatives set by a black box
+//should manage any ancillary buffers needed; who should own the state buffers?
+//sleep on this for now
+/*template <typename T>
+class ofxRKIntegrator{
+public:
+    void step(float t, float dt);
+    void add(ofxDynamicalTexture<T> *p);
+private:
+    vector<ofxDynamicalTexture<T> *> v;
+};*/
+
 class ofApp : public ofBaseApp{
 
     public:
@@ -66,6 +97,8 @@ class ofApp : public ofBaseApp{
         void toggleRenderMode();
         void beginRenderMode();
         void endRenderMode();
+
+        void loadShaders();
 
         void allocateFbos();
         void setResolution(int x, int y);
@@ -83,17 +116,16 @@ class ofApp : public ofBaseApp{
         void initParams(int &seed);
         void toggleRecord(int& r);
 
-        void rkUpdate(float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &new_y);
-        void rkUpdate(float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k, ofxPingPongFbo &new_y);
-        void rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime);
-        void rkStep(float t, float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &yprime);
-        void rungeKutta(float t, float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k);
+        void dynDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime);
+        void lpDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime);
 
         void resample(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale);
+        void multiscaleProcessing(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime);
         void derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime);
 
         void scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest);
+        void mix(float m, ofxPingPongFbo &x, ofxPingPongFbo &y, ofxPingPongFbo &dest);
         void b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode = OF_BLENDMODE_ALPHA);
         void blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius);
@@ -107,7 +139,8 @@ class ofApp : public ofBaseApp{
         ofParameter<float> lf_bleed; //amount of low frequency information left behind in high-passed bins
         ofParameter<float> blur_initial; //radius of a blur applied before frequency decomposition, in pixels
         ofParameter<float> blur_scale; //scale the radius of blur used for low pass filter (determined by fixed scale factor)
-        ofParameter<float> drive; //not in use; shape nonlinearity applied to sum of scales
+        ofParameter<float> drive; //gain parameter on main derivative
+        ofParameter<float> lp_frames; //set the time constant for the temporal filter in frames
 
         ofParameter<float> disp_exponent; //how to scale displacements to compensate for downsampling
         ofParameter<float> xdrift; //horizontal displacement
@@ -147,13 +180,14 @@ class ofApp : public ofBaseApp{
 
         ofFbo::Settings fbo_params;
 
-        vector<ofxPingPongFbo> k_fbos, y_pyramid, yprime_pyramid;//blur_fbos, grad_fbos;
-        ofxPingPongFbo y_fbo, agent_fbo, display_fbo, readback_fbo, render_fbo;
+        ofxDynamicalTexture<ofApp> *dyn, *lp;
+
+        vector<ofxPingPongFbo> y_pyramid, yprime_pyramid;
+        ofxPingPongFbo  agent_fbo, display_fbo, readback_fbo, render_fbo;
         float frame;
-        ofShader shader_blur, shader_resample, shader_rkupdate, shader_display,
+        ofShader shader_blur, shader_resample, shader_display,
             shader_multiscale, shader_post_derivative, shader_grad,
             shader_scale_add;
-        //ofShader shader_rkderivative, shader_test,,;
 
         int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, undersample_terrain, num_scales;
 

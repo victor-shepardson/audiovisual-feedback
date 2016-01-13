@@ -25,3 +25,4 @@
 24, path_jitter 0 1;
 25, fade_time 0 100;
 26, path_blur 0 64;
+27, lp_frames 0 128;

@@ -93,6 +93,108 @@ void ofxPingPongFbo::activateAllDrawBuffers(){
     pong->activateAllDrawBuffers();
 }
 
+//====================================================================
+
+template <class T>
+ofxDynamicalTexture<T>::ofxDynamicalTexture(T *p, void (T::*f)(float, ofxPingPongFbo&, ofxPingPongFbo&)){
+    app = p;
+    derivative = f;
+    //should test if already loaded, or something better
+    shader_rkupdate.load(ofToDataPath("../../src/shader/rkupdate"));
+}
+
+template <class T>
+ofShader ofxDynamicalTexture<T>::shader_rkupdate = ofShader();
+
+template <class T>
+void ofxDynamicalTexture<T>::allocate(ofFbo::Settings s){
+    y.allocate(s);
+    for(int i=0; i<5; i++){
+        ofxPingPongFbo fbo;
+        fbo.allocate(s);
+        k.push_back(fbo);
+    }
+}
+template <class T>
+void ofxDynamicalTexture<T>::destroy(){
+    y.destroy();
+    for(int i = 0; i<k.size(); i++)
+        k[i].destroy();
+    k.clear();
+}
+
+//y += dt*(k0 + 2*k1 + 2*k2 + k3)/6
+template <class T>
+void ofxDynamicalTexture<T>::rkUpdate(float dt){
+    int w = y.getWidth();
+    int h = y.getHeight();
+    shader_rkupdate.begin();
+    shader_rkupdate.setUniform1i("mode", 1);
+    shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
+    shader_rkupdate.setUniformTexture("k0", k[0].getTextureReference(),1);
+    shader_rkupdate.setUniformTexture("k1", k[1].getTextureReference(),2);
+    shader_rkupdate.setUniformTexture("k2", k[2].getTextureReference(),3);
+    shader_rkupdate.setUniformTexture("k3", k[3].getTextureReference(),4);
+    shader_rkupdate.setUniform1f("dt", dt);
+    y.begin();
+    ofRect(0, 0, w, h);
+    y.end();
+    shader_rkupdate.end();
+}
+
+// k[i+1] := y+k[i]*dt
+template <class T>
+void ofxDynamicalTexture<T>::rkUpdate(float dt, int i){
+    int w = y.getWidth();
+    int h = y.getHeight();
+    int j = i+1;
+    shader_rkupdate.begin();
+    shader_rkupdate.setUniform1i("mode", 0);
+    shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
+    shader_rkupdate.setUniformTexture("k0", k[i].getTextureReference(),1);
+    shader_rkupdate.setUniform1f("dt", dt);
+    k[j].begin();
+    ofRect(0, 0, w, h);
+    k[j].end();
+    shader_rkupdate.end();
+}
+
+//compute y' = f(t+dt, y+dt*k)
+template <class T>
+void ofxDynamicalTexture<T>::rkStep(float t, float dt, int i){
+    int j = i+1;
+    if(i>0){
+        rkUpdate(dt, i); //k[j] as scratch to store y+dt*k[i]
+        (app->*derivative)(t+dt, k[j], k[j]);
+    }
+    else{
+        (app->*derivative)(t, y, k[j]);
+    }
+}
+//use runge-kutta algorithm to approximate y(t+dt). k must contain at least 4 scratch fbos
+template <class T>
+void ofxDynamicalTexture<T>::tick(float t, float dt, int i){
+    switch(i){
+        case 0:
+            rkStep(t, 0, 0);
+            break;
+        case 1:
+            rkStep(t, .5*dt, 0);
+            break;
+        case 2:
+            rkStep(t, .5*dt, 1);
+            break;
+        case 3:
+            rkStep(t, dt, 2);
+    }
+}
+template <class T>
+void ofxDynamicalTexture<T>::tock(float dt){
+    rkUpdate(dt);
+}
+
+//============================================================
+
 void ofApp::setup(){
     params.setName("params");
 	params.add(target_sat.set("target_sat",1));
@@ -103,6 +205,7 @@ void ofApp::setup(){
 	params.add(lf_bleed.set("lf_bleed",0,0,1));
 	params.add(blur_initial.set("blur_initial",1));
     params.add(blur_scale.set("blur_scale",1));
+    params.add(lp_frames.set("lp_frames",1));
 	params.add(bound_clip.set("bound_clip",1));
 	params.add(seed.set("seed",0));
 	params.add(disp_exponent.set("disp_exponent",0));
@@ -172,16 +275,7 @@ void ofApp::setup(){
     ofDisableAntiAliasing();
     ofSetTextureWrap(GL_REPEAT, GL_REPEAT);
 
-    shader_resample.load(ofToDataPath("../../src/shader/resample"));
-    shader_blur.load(ofToDataPath("../../src/shader/blur"));
-    shader_rkupdate.load(ofToDataPath("../../src/shader/rkupdate"));
-    shader_grad.load(ofToDataPath("../../src/shader/grad"));
-    shader_display.load(ofToDataPath("../../src/shader/display"));
-    //shader_rkderivative.load(ofToDataPath("../../src/shader/rkderivative"));
-    shader_multiscale.load(ofToDataPath("../../src/shader/multiscale"));
-    shader_post_derivative.load(ofToDataPath("../../src/shader/post_derivative"));
-    //shader_test.load(ofToDataPath("../../src/shader/test"));
-    shader_scale_add.load(ofToDataPath("../../src/shader/scale_add"));
+    loadShaders();
 
     fbo_params = ofFbo::Settings(); //needs to come after the ofDisable* above
     fbo_params.width = realtime_width;
@@ -205,7 +299,7 @@ void ofApp::setup(){
     allocateFbos();
 
     fill(agent_fbo, ofFloatColor(0,0,0,1));
-    initRandom(y_fbo, 0);
+    initRandom(dyn->y, 0);
 
     channels = 2;
     frame_rate = 24;
@@ -235,13 +329,20 @@ void ofApp::close(){
         endRenderMode();
 }
 
-void ofApp::allocateFbos(){
-    for(int i=0; i<4; i++){
-        ofxPingPongFbo fbo;
-        fbo.allocate(fbo_params);
-        k_fbos.push_back(fbo);
-    }
+void ofApp::loadShaders(){
+    shader_resample.load(ofToDataPath("../../src/shader/resample"));
+    shader_blur.load(ofToDataPath("../../src/shader/blur"));
+    //shader_rkupdate.load(ofToDataPath("../../src/shader/rkupdate"));
+    shader_grad.load(ofToDataPath("../../src/shader/grad"));
+    shader_display.load(ofToDataPath("../../src/shader/display"));
+    //shader_rkderivative.load(ofToDataPath("../../src/shader/rkderivative"));
+    shader_multiscale.load(ofToDataPath("../../src/shader/multiscale"));
+    shader_post_derivative.load(ofToDataPath("../../src/shader/post_derivative"));
+    //shader_test.load(ofToDataPath("../../src/shader/test"));
+    shader_scale_add.load(ofToDataPath("../../src/shader/scale_add"));
+}
 
+void ofApp::allocateFbos(){
     ofFbo::Settings y_pyramid_params = fbo_params;
     y_pyramid_params.numColorbuffers = 3; //store gradients
     for(int i=0; i<num_scales; i++){
@@ -261,8 +362,11 @@ void ofApp::allocateFbos(){
         yprime_pyramid_params.height/=scale_factor;
     }
 
-    y_fbo = ofxPingPongFbo();
-    y_fbo.allocate(fbo_params);
+    dyn = new ofxDynamicalTexture<ofApp>(this, &ofApp::dynDerivative);
+    dyn->allocate(fbo_params);
+
+    lp = new ofxDynamicalTexture<ofApp>(this, &ofApp::lpDerivative);
+    lp->allocate(fbo_params);
 
     display_fbo = ofxPingPongFbo();
     display_fbo.allocate(fbo_params);
@@ -285,12 +389,11 @@ void ofApp::allocateFbos(){
 
 void ofApp::setResolution(int x, int y){
 
-    ofxPingPongFbo temp_y_fbo = y_fbo;
-    ofxPingPongFbo temp_agent_fbo = agent_fbo;
+    ofxDynamicalTexture<ofApp> *dyn_old = dyn;
+    ofxDynamicalTexture<ofApp> *lp_old = lp;
 
-    for(int i=0; i<k_fbos.size(); i++)
-        k_fbos[i].destroy();
-    k_fbos.clear();
+    ofxPingPongFbo agent_fbo_old = agent_fbo;
+
     for(int i=0; i<y_pyramid.size(); i++)
         y_pyramid[i].destroy();
     y_pyramid.clear();
@@ -306,11 +409,16 @@ void ofApp::setResolution(int x, int y){
 
     allocateFbos();
 
-    resample(temp_y_fbo, y_fbo);
-    temp_y_fbo.destroy();
+    resample(dyn_old->y, dyn->y);
+    dyn_old->destroy();
+    delete dyn_old;
 
-    resample(temp_agent_fbo, agent_fbo);
-    temp_agent_fbo.destroy();
+    resample(lp_old->y, lp->y);
+    lp_old->destroy();
+    delete lp_old;
+
+    resample(agent_fbo_old, agent_fbo);
+    agent_fbo_old.destroy();
 }
 void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     //resample src to dest with truncated gaussian kernel
@@ -397,6 +505,9 @@ void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, of
     dest.endInPlace();
     shader_scale_add.end();
 }
+void ofApp::mix(float m, ofxPingPongFbo &x, ofxPingPongFbo &y, ofxPingPongFbo &dest){
+    scale_add(1-m, x, m, y, dest);
+}
 //mov is style-agnostic
 void ofApp::mov(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     dest.beginInPlace();
@@ -421,6 +532,41 @@ void ofApp::gradients(ofxPingPongFbo &src){
     src.setActiveDrawBuffer(0); //clean up before calling end; active draw buffer assumed to be 0
     src.endInPlace();
     shader_grad.end();
+}
+
+void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
+    int w = y.getWidth();
+    int h = y.getHeight();
+
+    blur(y, y_pyramid[0], blur_initial);
+    //mov(y, y_pyramid[0]);
+
+    //compute pyramid + derivatives of y and accumulate to yprime
+    float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+    for(int i=0; i<y_pyramid.size()-1; i++){
+        float blur_amt = max(0., blur_scale*scale_factor - amt_blurred);
+        blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+       // fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+        amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
+        mov(yprime_pyramid[i], y_pyramid[i+1]);
+    }
+    for(int i=0; i<y_pyramid.size()-1; i++){ //<------ NOTE: largest scale is turned off
+        float scale = pow(scale_factor,i);
+        gradients(y_pyramid[i]);
+        processingAtScale(t, y_pyramid[i], y_pyramid[i+1], yprime_pyramid[i], scale);
+       // float n = y_pyramid.size()-1;
+        //float w = ((float(i)/(n-1)-.5)*lf_bleed+.5)/n;
+        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,1.-w), OF_BLENDMODE_ALPHA); //weight scales according to lf_
+        if(!i){
+            mov(yprime_pyramid[i], yprime);
+        }
+        else{
+            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
+            blend(y_pyramid[0], yprime, OF_BLENDMODE_ADD);
+        }
+    }
 }
 
 void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale){
@@ -475,101 +621,21 @@ void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, o
     shader_post_derivative.end();
 }
 
-//get next y from y,dt,k0,k1,k2,k3 and store in new_y
-void ofApp::rkUpdate(float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k, ofxPingPongFbo &new_y){
-    int w = y.getWidth();
-    int h = y.getHeight();
-    shader_rkupdate.begin();
-    shader_rkupdate.setUniform1i("mode", 1);
-    shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
-    shader_rkupdate.setUniformTexture("k0", k[0].getTextureReference(),1);
-    shader_rkupdate.setUniformTexture("k1", k[1].getTextureReference(),2);
-    shader_rkupdate.setUniformTexture("k2", k[2].getTextureReference(),3);
-    shader_rkupdate.setUniformTexture("k3", k[3].getTextureReference(),4);
-    shader_rkupdate.setUniform1f("dt", dt);
-    new_y.begin();
-    ofRect(0, 0, w, h);
-    new_y.end();
-    shader_rkupdate.end();
-}
-
-// y := y+k*dt
-void ofApp::rkUpdate(float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &new_y){
-    int w = y.getWidth();
-    int h = y.getHeight();
-    shader_rkupdate.begin();
-    shader_rkupdate.setUniform1i("mode", 0);
-    shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
-    shader_rkupdate.setUniformTexture("k0", k.getTextureReference(),1);
-    shader_rkupdate.setUniform1f("dt", dt);
-    new_y.begin();
-    ofRect(0, 0, w, h);
-    new_y.end();
-    shader_rkupdate.end();
-}
-
 //the meat: compute y' as f(t, y) and store in yprime
-void ofApp::rkDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
-    int w = y.getWidth();
-    int h = y.getHeight();
-
-    blur(y, y_pyramid[0], blur_initial);
-    //mov(y, y_pyramid[0]);
-
-    //compute pyramid + derivatives of y and accumulate to yprime
-    float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
-    for(int i=0; i<y_pyramid.size()-1; i++){
-        float blur_amt = max(0., blur_scale*scale_factor - amt_blurred);
-        blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-       // fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-        amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
-        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
-        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
-        mov(yprime_pyramid[i], y_pyramid[i+1]);
-    }
-    for(int i=0; i<y_pyramid.size()-1; i++){ //<------ NOTE: largest scale is turned off
-        float scale = pow(scale_factor,i);
-        gradients(y_pyramid[i]);
-        processingAtScale(t, y_pyramid[i], y_pyramid[i+1], yprime_pyramid[i], scale);
-       // float n = y_pyramid.size()-1;
-        //float w = ((float(i)/(n-1)-.5)*lf_bleed+.5)/n;
-        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,1.-w), OF_BLENDMODE_ALPHA); //weight scales according to lf_
-        if(!i){
-            mov(yprime_pyramid[i], yprime);
-        }
-        else{
-            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
-            blend(y_pyramid[0], yprime, OF_BLENDMODE_ADD);
-        }
-    }
-
-    //resample(*y_pyramid.rbegin(), y_pyramid[0]);
-
-    //further (local) processing of derivative
+void ofApp::dynDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
+    sub(y, lp->y, yprime);
+    multiscaleProcessing(t, yprime, yprime);
     derivativePost(t, y, yprime, yprime);
+
+    //multiscaleProcessing(t, y, yprime);
+    //derivativePost(t, y, yprime, yprime);
 }
 
-//compute y' = f(t+dt, y+dt*k)
-void ofApp::rkStep(float t, float dt, ofxPingPongFbo &y, ofxPingPongFbo &k, ofxPingPongFbo &yprime){
-    if(dt>0){
-        y.save();
-        rkUpdate(dt, y, k, y);
-        rkDerivative(t+dt, y, yprime);
-        y.restore();
-        //rkUpdate(dt, y, k, scratch_fbo); //using scratch_fbo to store y+k*dt
-        //rkDerivative(t+dt, scratch_fbo, yprime);
-    }
-    else{
-        rkDerivative(t, y, yprime);
-    }
-}
-//use runge-kutta algorithm to approximate y(t+dt). k must contain at least 4 scratch fbos
-void ofApp::rungeKutta(float t, float dt, ofxPingPongFbo &y, vector<ofxPingPongFbo> &k){
-    rkStep(t, 0, y, k[0], k[0]); //first k[0] is a dummy argument
-    rkStep(t, .5*dt, y, k[0], k[1]);
-    rkStep(t, .5*dt, y, k[1], k[2]);
-    rkStep(t, dt, y, k[2], k[3]);
-    rkUpdate(dt,y,k,y); //in-place works because the update operation is completely parallel
+void ofApp::lpDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
+    //mix(epsilon, lp, dyn) - lp === lp*eps + (1-eps)*dyn - lp === (eps-1)*lp + (1-eps)*dyn === (1-eps)*(dyn-lp)
+    float epsilon = 1 - pow(2, -1./lp_frames);
+    float damp = .999;
+    scale_add(damp*(1-epsilon), dyn->y, damp*(epsilon-1), y, yprime);
 }
 
 void ofApp::update(){
@@ -583,6 +649,7 @@ void ofApp::draw(){
     double cur_frame_rate = frame_rate;
     if(realtime) cur_frame_rate = ofGetFrameRate();
 
+    ofxPingPongFbo &y_fbo = dyn->y;
     int w = y_fbo.getWidth();
     int h = y_fbo.getHeight();
 
@@ -601,8 +668,31 @@ void ofApp::draw(){
     blur(agent_fbo, agent_fbo, path_blur);
     gradients(agent_fbo);
 
-    rungeKutta(frame, 1, y_fbo, k_fbos);
+    //main video process
+    //rungeKutta(frame, 1, y_fbo, k_fbos);
+    for(int i=0; i<4; i++){
+        dyn->tick(frame, 1, i);
+        lp->tick(frame, 1, i);
+    }
+    dyn->tock(1);
+    lp->tock(1);
 
+    //temporal filters
+    //ought to bring this inside the integrator; to do that, should build a more general
+    //integration framework which can deal with a list of framebuffers to integrate,
+    //each with a derivative function and scratch buffers registered somewhere.
+    // maybe instead of using vector of k_fbos, just use textures within an fbo;
+    // ofxDynamicalFbo wrapping the integrator?
+    /*for(int i=0; i<lp.size(); i++){
+        float lp_frames = 4;
+        float epsilon = 1 - pow(2, -1./lp_frames);
+        mix(epsilon, lp[i], y_fbo, lp[i]);
+    }
+    sub(y_fbo, lp[0], y_fbo);
+    */
+
+
+    //branch on disp_mode and draw to screen
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
     switch(disp_mode){
         case 0:
@@ -625,7 +715,7 @@ void ofApp::draw(){
             b2u(display_fbo, display_fbo);
             break;
         case 3:
-            mov(k_fbos[0], display_fbo);
+            mov(dyn->k[0], display_fbo);
             b2u(display_fbo, display_fbo);
             break;
         case 4:
@@ -825,6 +915,10 @@ void ofApp::keyPressed(int key){
     if(key=='h'){
         usage();
     }
+    if(key=='l'){
+        cout<<"reload shaders"<<endl;
+        loadShaders();
+    }
     if(key=='p'){
         disp_scale = ofWrap(disp_scale+1, 0, num_scales);
         cout<<"display scale: "<<disp_scale<<endl;
@@ -838,7 +932,8 @@ void ofApp::keyPressed(int key){
         ss.saveImage(fname.str());
     }
     if(key=='r'){
-        initRandom(y_fbo, seed);
+        initRandom(lp->y, seed+1);
+        initRandom(dyn->y, seed);
         vwt->scramble();
         ofPushStyle();
         ofSetColor(0,0,0);
@@ -869,9 +964,10 @@ void ofApp::usage(){
     cout<<
         "a - audio on/off"<<endl<<
        // "b - change display buffer for pyramid"<<endl<<
-        "d - change display mode (0=feedback, 1=waveform, 2=derivative"<<endl<<
+        "d - change display mode (monochrome->agents->pyramid->derivative->color)"<<endl<<
         "f - toggle fullscreen"<<endl<<
         "h - print this message"<<endl<<
+        "l - reload shaders"<<endl<<
         "m - toggle render mode"<<endl<<
         "n - reinitialize FBOs (for testing purposes)"<<endl<<
         "p - change display scale for pyramid"<<endl<<
