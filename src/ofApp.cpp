@@ -96,7 +96,7 @@ void ofxPingPongFbo::activateAllDrawBuffers(){
 //====================================================================
 
 template <class T>
-ofxDynamicalTexture<T>::ofxDynamicalTexture(T *p, void (T::*f)(float, ofxPingPongFbo&, ofxPingPongFbo&)){
+ofxDynamicalTexture<T>::ofxDynamicalTexture(T *p, void (T::*f)(float, ofxPingPongFbo&)){
     app = p;
     derivative = f;
     //should test if already loaded, or something better
@@ -109,6 +109,7 @@ ofShader ofxDynamicalTexture<T>::shader_rkupdate = ofShader();
 template <class T>
 void ofxDynamicalTexture<T>::allocate(ofFbo::Settings s){
     y.allocate(s);
+    ytemp.allocate(s);
     for(int i=0; i<5; i++){
         ofxPingPongFbo fbo;
         fbo.allocate(s);
@@ -118,7 +119,8 @@ void ofxDynamicalTexture<T>::allocate(ofFbo::Settings s){
 template <class T>
 void ofxDynamicalTexture<T>::destroy(){
     y.destroy();
-    for(int i = 0; i<k.size(); i++)
+    ytemp.destroy();
+    for(int i=0; i<k.size(); i++)
         k[i].destroy();
     k.clear();
 }
@@ -136,76 +138,99 @@ void ofxDynamicalTexture<T>::rkUpdate(float dt){
     shader_rkupdate.setUniformTexture("k2", k[2].getTextureReference(),3);
     shader_rkupdate.setUniformTexture("k3", k[3].getTextureReference(),4);
     shader_rkupdate.setUniform1f("dt", dt);
-    y.begin();
+    ytemp.begin();
     ofRect(0, 0, w, h);
-    y.end();
+    ytemp.end();
     shader_rkupdate.end();
+}
+
+template <class T>
+ofxPingPongFbo& ofxDynamicalTexture<T>::getState(){
+    return ytemp;
 }
 
 // k[i+1] := y+k[i]*dt
 template <class T>
-void ofxDynamicalTexture<T>::rkUpdate(float dt, int i){
+void ofxDynamicalTexture<T>::rkUpdate(float dt, int i, ofxPingPongFbo &dest){
     int w = y.getWidth();
     int h = y.getHeight();
-    int j = i+1;
     shader_rkupdate.begin();
     shader_rkupdate.setUniform1i("mode", 0);
     shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
     shader_rkupdate.setUniformTexture("k0", k[i].getTextureReference(),1);
     shader_rkupdate.setUniform1f("dt", dt);
-    k[j].begin();
+    dest.begin();
     ofRect(0, 0, w, h);
-    k[j].end();
+    dest.end();
     shader_rkupdate.end();
 }
 
 //compute y' = f(t+dt, y+dt*k)
 template <class T>
 void ofxDynamicalTexture<T>::rkStep(float t, float dt, int i){
-    int j = i+1;
-    if(i>0){
-        rkUpdate(dt, i); //k[j] as scratch to store y+dt*k[i]
-        (app->*derivative)(t+dt, k[j], k[j]);
-    }
-    else{
-        (app->*derivative)(t, y, k[j]);
-    }
+    (app->*derivative)(t+dt, k[i]);
 }
 //use runge-kutta algorithm to approximate y(t+dt). k must contain at least 4 scratch fbos
 template <class T>
-void ofxDynamicalTexture<T>::tick(float t, float dt, int i){
+void ofxDynamicalTexture<T>::tock(float t, float dt, int i){
     switch(i){
         case 0:
             rkStep(t, 0, 0);
             break;
         case 1:
-            rkStep(t, .5*dt, 0);
-            break;
-        case 2:
             rkStep(t, .5*dt, 1);
             break;
+        case 2:
+            rkStep(t, .5*dt, 2);
+            break;
         case 3:
-            rkStep(t, dt, 2);
+            rkStep(t, dt, 3);
     }
 }
 template <class T>
-void ofxDynamicalTexture<T>::tock(float dt){
-    rkUpdate(dt);
+void ofxDynamicalTexture<T>::tick(float t, float dt, int i){
+    switch(i){
+        case 0:
+            y.begin();
+            ytemp.draw(0,0,y.getWidth(),y.getHeight());
+            y.end();
+            break;
+        case 1:
+            rkUpdate(.5*dt, 0, ytemp);
+            break;
+        case 2:
+            rkUpdate(.5*dt, 1, ytemp);
+            break;
+        case 3:
+            rkUpdate(dt, 2, ytemp);
+    }
+}
+
+template <class T>
+void ofxDynamicalTexture<T>::update(float dt, int mode){
+    if(mode>0)
+        rkUpdate(dt); //rk4
+    else
+        rkUpdate(dt, 0, ytemp); //euler
 }
 
 //============================================================
 
 void ofApp::setup(){
     params.setName("params");
-	params.add(target_sat.set("target_sat",1));
-	params.add(target_mean.set("target_mean",0));
-	params.add(target_mix.set("target_mix",.5,0,1));
+	params.add(saturate.set("saturate",1));
+	params.add(bias.set("bias",0));
+	params.add(gen.set("gen",.5,0,1));
+	params.add(compress.set("compress",0,0,1));
 	params.add(time_scale.set("time_scale",.5));
 	params.add(rot.set("rot",0));
 	params.add(lf_bleed.set("lf_bleed",0,0,1));
+	params.add(filter_steps.set("filter_steps",1));
+	params.add(blur_post.set("blur_post",1));
 	params.add(blur_initial.set("blur_initial",1));
     params.add(blur_scale.set("blur_scale",1));
     params.add(lp_frames.set("lp_frames",1));
+    params.add(lp_radius.set("lp_radius", 1));
 	params.add(bound_clip.set("bound_clip",1));
 	params.add(seed.set("seed",0));
 	params.add(disp_exponent.set("disp_exponent",0));
@@ -244,8 +269,8 @@ void ofApp::setup(){
     realtime = true;
     use_camera = false;
 
-    oversample_waveform = 2;
-    undersample_terrain = 2;
+    oversample_waveform = 1;
+    undersample_terrain = 4;
 
     float oversample_all = 1.;
     fullscreen = false;
@@ -263,6 +288,8 @@ void ofApp::setup(){
 
     render_width = 1920*oversample_all;
     render_height = 1080*oversample_all;
+
+    ofSetVerticalSync(true); //does not appear to be working on windows w/ of 0.8.4
 
     ofSetFullscreen(fullscreen);
     ofSetWindowShape(window_width, window_height);
@@ -287,25 +314,30 @@ void ofApp::setup(){
     fbo_params.wrapModeVertical = GL_REPEAT;
     fbo_params.numSamples = 0;
 
+    integrator = 0;
+
     frame = 0;
 
-    disp_mode = 0;
+    cycle_disp_mode = 0;
+
+    disp_mode = 4;
     disp_scale = 0;
     disp_buf = 0;
 
-    num_scales = 4;
-    scale_factor = 4;
+    discard_largest_scale = true;
+    num_scales = 5;
+    scale_factor = 3;
 
     allocateFbos();
 
     fill(agent_fbo, ofFloatColor(0,0,0,1));
-    initRandom(dyn->y, 0);
+    initRandom(dyn->getState(), 0);
 
     channels = 2;
     frame_rate = 24;
     sample_rate = 44100;
     audio_delay = .5;
-    int frames_to_keep = 100;
+    int frames_to_keep = 48;
 
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
@@ -332,14 +364,15 @@ void ofApp::close(){
 void ofApp::loadShaders(){
     shader_resample.load(ofToDataPath("../../src/shader/resample"));
     shader_blur.load(ofToDataPath("../../src/shader/blur"));
-    //shader_rkupdate.load(ofToDataPath("../../src/shader/rkupdate"));
     shader_grad.load(ofToDataPath("../../src/shader/grad"));
     shader_display.load(ofToDataPath("../../src/shader/display"));
-    //shader_rkderivative.load(ofToDataPath("../../src/shader/rkderivative"));
     shader_multiscale.load(ofToDataPath("../../src/shader/multiscale"));
     shader_post_derivative.load(ofToDataPath("../../src/shader/post_derivative"));
     //shader_test.load(ofToDataPath("../../src/shader/test"));
     shader_scale_add.load(ofToDataPath("../../src/shader/scale_add"));
+    shader_lp_filter.load(ofToDataPath("../../src/shader/lp_filter"));
+    shader_warp.load(ofToDataPath("../../src/shader/warp"));
+    shader_edge_aware.load(ofToDataPath("../../src/shader/edge_aware_filter"));
 }
 
 void ofApp::allocateFbos(){
@@ -356,7 +389,7 @@ void ofApp::allocateFbos(){
     ofFbo::Settings yprime_pyramid_params = fbo_params;
     for(int i=0; i<num_scales; i++){
         ofxPingPongFbo fbo;
-        fbo.allocate(yprime_pyramid_params  );
+        fbo.allocate(yprime_pyramid_params);
         yprime_pyramid.push_back(fbo);
         yprime_pyramid_params.width/=scale_factor;
         yprime_pyramid_params.height/=scale_factor;
@@ -388,7 +421,6 @@ void ofApp::allocateFbos(){
 }
 
 void ofApp::setResolution(int x, int y){
-
     ofxDynamicalTexture<ofApp> *dyn_old = dyn;
     ofxDynamicalTexture<ofApp> *lp_old = lp;
 
@@ -409,11 +441,11 @@ void ofApp::setResolution(int x, int y){
 
     allocateFbos();
 
-    resample(dyn_old->y, dyn->y);
+    resample(dyn_old->getState(), dyn->getState());
     dyn_old->destroy();
     delete dyn_old;
 
-    resample(lp_old->y, lp->y);
+    resample(lp_old->getState(), lp->getState());
     lp_old->destroy();
     delete lp_old;
 
@@ -444,6 +476,29 @@ void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
         shader_resample.end();
     }
 }
+void ofApp::resampleToWindow(ofxPingPongFbo &src){
+    int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
+    //resample src to dest with truncated gaussian kernel
+    float sf = float(src.getWidth())/ww;
+    if(sf>1){ //downsample
+        src.save();
+        blur(src, src, 2.*sf);
+        src.draw(0,0,ww,wh);
+        src.restore();
+    }
+    else{ //upsample
+ /*       mov(src, dest);
+        blur(dest, dest, 2./sf);
+    }
+*/
+        shader_resample.begin();
+        shader_resample.setUniformTexture("src0", src.getTextureReference(0), 0);
+        shader_resample.setUniform2i("dest_size", ww,wh);
+        shader_resample.setUniform1i("num_textures", 1);
+        ofRect(0,0, ww,wh);
+        shader_resample.end();
+    }
+}
 void ofApp::b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     if(&src!=&dest)
         mov(src, dest);
@@ -471,15 +526,24 @@ void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
     shader_blur.setUniformTexture("state", src.getTextureReference(),0);
     shader_blur.setUniform2i("size", w, h);
     shader_blur.setUniform2f("dir",0,radius);
-    dest.begin();
+    dest.beginInPlace();
     ofRect(0, 0, w, h);
-    dest.end();
+    dest.endInPlace();
     shader_blur.setUniformTexture("state", dest.getTextureReference(),0);
     shader_blur.setUniform2f("dir",radius,0);
     dest.begin();
     ofRect(0, 0, w, h);
     dest.end();
     shader_blur.end();
+}
+void ofApp::edge_aware_filter(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    int w = dest.getWidth(), h = dest.getHeight();
+    shader_edge_aware.begin();
+    shader_edge_aware.setUniformTexture("state", src.getTextureReference(),0);
+    shader_edge_aware.setUniform2i("size", w, h);
+    dest.begin();
+    ofRect(0, 0, w, h);
+    dest.end();
 }
 void ofApp::sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest){
     /*ofPushStyle();
@@ -529,16 +593,24 @@ void ofApp::gradients(ofxPingPongFbo &src){
     vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
     src.setActiveDrawBuffers(grad_bufs);
     ofRect(0,0,src.getWidth(), src.getHeight());
-    src.setActiveDrawBuffer(0); //clean up before calling end; active draw buffer assumed to be 0
+    src.setActiveDrawBuffer(0); //clean up before calling end; active draw buffer assumed to be 0 elsewhere
     src.endInPlace();
     shader_grad.end();
 }
 
-void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
-    int w = y.getWidth();
-    int h = y.getHeight();
+void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    for(int i=0; i<filter_steps; i++)
+        edge_aware_filter(dest, dest);
+    blur(src, dest, blur_post);
+}
 
-    blur(y, y_pyramid[0], blur_initial);
+void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    int w = src.getWidth();
+    int h = src.getHeight();
+
+    //sub(y, f, yprime); //yprime as scratch
+
+    blur(src, y_pyramid[0], blur_initial);
     //mov(y, y_pyramid[0]);
 
     //compute pyramid + derivatives of y and accumulate to yprime
@@ -546,27 +618,40 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &y, ofxPingPongFbo &ypr
     for(int i=0; i<y_pyramid.size()-1; i++){
         float blur_amt = max(0., blur_scale*scale_factor - amt_blurred);
         blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-       // fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
         amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
         //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
         scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
     }
-    for(int i=0; i<y_pyramid.size()-1; i++){ //<------ NOTE: largest scale is turned off
+    int scales_to_process = y_pyramid.size();
+    if(discard_largest_scale) scales_to_process-=1;
+    for(int i=scales_to_process-1; i>=0; i--){
         float scale = pow(scale_factor,i);
         gradients(y_pyramid[i]);
-        processingAtScale(t, y_pyramid[i], y_pyramid[i+1], yprime_pyramid[i], scale);
-       // float n = y_pyramid.size()-1;
-        //float w = ((float(i)/(n-1)-.5)*lf_bleed+.5)/n;
-        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,1.-w), OF_BLENDMODE_ALPHA); //weight scales according to lf_
-        if(!i){
-            mov(yprime_pyramid[i], yprime);
-        }
+        int mod_idx = i;
+        if(discard_largest_scale) mod_idx +=1;
+        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale);
+    }
+    //for(int i=0; i<scales_to_process; i++){
+    //    if(!i){
+            mov(yprime_pyramid[0], dest);
+    /*    }
         else{
             resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
-            blend(y_pyramid[0], yprime, OF_BLENDMODE_ADD);
+            //float m = 1./(i+1);
+            //mix(m, dest, y_pyramid[0], dest);
+            blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
         }
-    }
+    }*/
+    shader_warp.begin();
+    shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
+    shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
+    shader_warp.setUniform2i("size",w,h);
+    dest.begin();
+    ofRect(0,0,w,h);
+    dest.end();
+    shader_warp.end();
 }
 
 void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale){
@@ -576,18 +661,12 @@ void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofx
     shader_multiscale.setUniformTexture("y", y.getTextureReference(0),0);
     shader_multiscale.setUniformTexture("xgrad", y.getTextureReference(1),1);
     shader_multiscale.setUniformTexture("ygrad", y.getTextureReference(2),2);
-    shader_multiscale.setUniformTexture("modulation", m.getTextureReference(), 3);
+    shader_multiscale.setUniformTexture("modulation", m.getTextureReference(0), 3);
     shader_multiscale.setUniform2i("size", w, h);
     shader_multiscale.setUniform1f("scale", scale);
     shader_multiscale.setUniform1f("disp_exponent", disp_exponent);
     shader_multiscale.setUniform1f("warp_color", warp_color);
     shader_multiscale.setUniform1f("warp_grad", warp_grad);
-    shader_multiscale.setUniform1f("zoom", zoom);
-    shader_multiscale.setUniform1f("suck", suck);
-    shader_multiscale.setUniform1f("swirl", swirl);
-    shader_multiscale.setUniform2f("drift", xdrift, ydrift);
-    shader_multiscale.setUniform1f("mirror_amt", mirror_amt);
-    shader_multiscale.setUniform1f("mirror_shape", mirror_shape);
     shader_multiscale.setUniformMatrix4f("color_proj", color_proj);
     shader_multiscale.setUniformMatrix4f("grad_proj", grad_proj);
     yprime.begin();
@@ -595,15 +674,16 @@ void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofx
     yprime.end();
     shader_multiscale.end();
 }
-void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, ofxPingPongFbo &new_yprime){
+void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
     int w = y.getWidth(), h = y.getHeight();
     shader_post_derivative.begin();
     shader_post_derivative.setUniform1f("t",t);
     shader_post_derivative.setUniformTexture("y", y.getTextureReference(),0);
-    shader_post_derivative.setUniformTexture("ynew", yprime.getTextureReference(),1);
-    shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(0),2);
-    shader_post_derivative.setUniformTexture("agradx", agent_fbo.getTextureReference(1),3);
-    shader_post_derivative.setUniformTexture("agrady", agent_fbo.getTextureReference(2),4);
+    shader_post_derivative.setUniformTexture("new_y", new_y.getTextureReference(),1);
+    shader_post_derivative.setUniformTexture("lp", lp.getTextureReference(), 2);
+    shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(0),3);
+    shader_post_derivative.setUniformTexture("agradx", agent_fbo.getTextureReference(1),4);
+    shader_post_derivative.setUniformTexture("agrady", agent_fbo.getTextureReference(2),5);
     shader_post_derivative.setUniform2i("size", w, h);
     shader_post_derivative.setUniform1f("warp_agent",warp_agent);
     shader_post_derivative.setUniform1f("agent_drive",agent_drive);
@@ -612,9 +692,16 @@ void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, o
     shader_post_derivative.setUniform1f("rot",rot);
     shader_post_derivative.setUniform1f("bound_clip",bound_clip);
     shader_post_derivative.setUniform1f("num_scales", num_scales);
-    shader_post_derivative.setUniform1f("target_sat",target_sat);
-    shader_post_derivative.setUniform1f("target_mean",target_mean);
-    shader_post_derivative.setUniform1f("target_mix",target_mix);
+    shader_post_derivative.setUniform1f("saturate",saturate);
+    shader_post_derivative.setUniform1f("bias",bias);
+    shader_post_derivative.setUniform1f("gen",gen);
+    shader_post_derivative.setUniform1f("compress", compress);
+    shader_post_derivative.setUniform1f("zoom", zoom);
+    shader_post_derivative.setUniform1f("suck", suck);
+    shader_post_derivative.setUniform1f("swirl", swirl);
+    shader_post_derivative.setUniform2f("drift", xdrift, ydrift);
+    shader_post_derivative.setUniform1f("mirror_amt", mirror_amt);
+    shader_post_derivative.setUniform1f("mirror_shape", mirror_shape);
     new_yprime.begin();
     ofRect(0,0,w,h);
     new_yprime.end();
@@ -622,20 +709,35 @@ void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime, o
 }
 
 //the meat: compute y' as f(t, y) and store in yprime
-void ofApp::dynDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
-    sub(y, lp->y, yprime);
-    multiscaleProcessing(t, yprime, yprime);
-    derivativePost(t, y, yprime, yprime);
-
-    //multiscaleProcessing(t, y, yprime);
-    //derivativePost(t, y, yprime, yprime);
+void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
+    multiscaleProcessing(t, dyn->getState(), yprime);
+    filtering(t, yprime, yprime);
+    derivativePost(t, dyn->getState(), yprime, lp->getState(), yprime);
 }
 
-void ofApp::lpDerivative(float t, ofxPingPongFbo &y, ofxPingPongFbo &yprime){
-    //mix(epsilon, lp, dyn) - lp === lp*eps + (1-eps)*dyn - lp === (eps-1)*lp + (1-eps)*dyn === (1-eps)*(dyn-lp)
-    float epsilon = 1 - pow(2, -1./lp_frames);
-    float damp = .999;
-    scale_add(damp*(1-epsilon), dyn->y, damp*(epsilon-1), y, yprime);
+void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
+    /*float epsilon = 1 - pow(2, -1./lp_frames);
+    float damp = 1-pow(.001,lp_frames+1);
+    blur(y, yprime, lp_radius);
+    mix(epsilon, yprime, dyn->y, yprime);
+    scale_add(damp, yprime, -1, y, yprime);*/
+
+    int w = yprime.getWidth(), h = yprime.getHeight();
+    float alpha = pow(2, -lp_frames);
+    float beta = lp_radius;
+    float epsilon = pow(.001,lp_frames+1);
+    shader_lp_filter.begin();
+    shader_lp_filter.setUniformTexture("x", dyn->getState().getTextureReference(), 0);
+    shader_lp_filter.setUniformTexture("y", lp->getState().getTextureReference(), 1);
+    shader_lp_filter.setUniform2i("size", w, h);
+    shader_lp_filter.setUniform1f("alpha",alpha);
+    shader_lp_filter.setUniform1f("beta",beta);
+    shader_lp_filter.setUniform1f("epsilon",epsilon);
+    shader_lp_filter.setUniform1f("time_scale",time_scale);
+    yprime.begin();
+    ofRect(0,0,w,h);
+    yprime.end();
+    shader_lp_filter.end();
 }
 
 void ofApp::update(){
@@ -643,13 +745,14 @@ void ofApp::update(){
     if(use_camera) camera.update();
     ofSetFrameRate(frame_rate);
     ofSetWindowTitle(ofToString(ofGetFrameRate()));
+    if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%5;
 }
 
 void ofApp::draw(){
     double cur_frame_rate = frame_rate;
     if(realtime) cur_frame_rate = ofGetFrameRate();
 
-    ofxPingPongFbo &y_fbo = dyn->y;
+    ofxPingPongFbo &y_fbo = dyn->getState();
     int w = y_fbo.getWidth();
     int h = y_fbo.getHeight();
 
@@ -669,28 +772,18 @@ void ofApp::draw(){
     gradients(agent_fbo);
 
     //main video process
-    //rungeKutta(frame, 1, y_fbo, k_fbos);
-    for(int i=0; i<4; i++){
+    //integrator = 0 for euler, 1 for rk4
+    int steps = 1 + 3*integrator;
+    for(int i=0; i<steps; i++){
         dyn->tick(frame, 1, i);
         lp->tick(frame, 1, i);
+        dyn->tock(frame, 1, i);
+        lp->tock(frame, 1, i);
     }
-    dyn->tock(1);
-    lp->tock(1);
+    dyn->update(1, integrator);
+    lp->update(1, integrator);
 
-    //temporal filters
-    //ought to bring this inside the integrator; to do that, should build a more general
-    //integration framework which can deal with a list of framebuffers to integrate,
-    //each with a derivative function and scratch buffers registered somewhere.
-    // maybe instead of using vector of k_fbos, just use textures within an fbo;
-    // ofxDynamicalFbo wrapping the integrator?
-    /*for(int i=0; i<lp.size(); i++){
-        float lp_frames = 4;
-        float epsilon = 1 - pow(2, -1./lp_frames);
-        mix(epsilon, lp[i], y_fbo, lp[i]);
-    }
-    sub(y_fbo, lp[0], y_fbo);
-    */
-
+//    blur(dyn->y, dyn->y, blur_initial);
 
     //branch on disp_mode and draw to screen
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
@@ -715,7 +808,7 @@ void ofApp::draw(){
             b2u(display_fbo, display_fbo);
             break;
         case 3:
-            mov(dyn->k[0], display_fbo);
+            mov(lp->getState(), display_fbo);
             b2u(display_fbo, display_fbo);
             break;
         case 4:
@@ -739,6 +832,7 @@ void ofApp::draw(){
             */
     }
     display_fbo.draw(0,0,ww,wh);
+    //resampleToWindow(display_fbo);
 
     //read pixels back from video memory and put a new frame in the VWT
     if(undersample_terrain > 1){
@@ -904,6 +998,10 @@ void ofApp::keyPressed(int key){
         disp_buf = ofWrap(disp_buf+1, 0, 3);
         cout<<"display buffer: "<<disp_buf<<endl;
     }*/
+    if(key=='c'){
+        cycle_disp_mode = (1+cycle_disp_mode)%5;
+        cout<<"cycle display mode: "<<cycle_disp_mode<<endl;
+    }
     if(key=='d'){
         disp_mode = ofWrap(disp_mode+1, 0, 5);
         cout<<"display mode: "<<disp_mode<<endl;
@@ -914,6 +1012,10 @@ void ofApp::keyPressed(int key){
     }
     if(key=='h'){
         usage();
+    }
+    if(key=='i'){
+        integrator = 1-integrator;
+        cout<<"integrator: "<<integrator<<endl;
     }
     if(key=='l'){
         cout<<"reload shaders"<<endl;
@@ -932,8 +1034,8 @@ void ofApp::keyPressed(int key){
         ss.saveImage(fname.str());
     }
     if(key=='r'){
-        initRandom(lp->y, seed+1);
-        initRandom(dyn->y, seed);
+        initRandom(lp->getState(), seed+1);
+        initRandom(dyn->getState(), seed);
         vwt->scramble();
         ofPushStyle();
         ofSetColor(0,0,0);
@@ -964,9 +1066,11 @@ void ofApp::usage(){
     cout<<
         "a - audio on/off"<<endl<<
        // "b - change display buffer for pyramid"<<endl<<
-        "d - change display mode (monochrome->agents->pyramid->derivative->color)"<<endl<<
+        "c - toggle automatic cycle display mode"<<endl<<
+        "d - change display mode (monochrome->agents->pyramid->lp->color)"<<endl<<
         "f - toggle fullscreen"<<endl<<
         "h - print this message"<<endl<<
+        "i - toggle integrator (0=euler, 1=rk4)"<<endl<<
         "l - reload shaders"<<endl<<
         "m - toggle render mode"<<endl<<
         "n - reinitialize FBOs (for testing purposes)"<<endl<<
