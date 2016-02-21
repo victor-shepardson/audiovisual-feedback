@@ -22,8 +22,8 @@ uniform float warp_color;
 //uniform float mirror_shape;
 //uniform float mirror_amt;
 
-uniform mat4 color_proj;
-uniform mat4 grad_proj;
+//uniform mat4 color_proj;
+//uniform mat4 grad_proj;
 
 out vec4 outputColor;
 
@@ -145,13 +145,16 @@ void snake_color_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, 
 }
 
 void snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
-	vec3 ref = sample(p, y);
+	vec3 ref = sample(p, s);
+	//ref -= dot(ref, vec3(1./3));
+	//ref /= (length(ref)+.001);
 	for(int i=1; i<=n; i++){
 		p+= dt*ascend(p, -ref);
 	}
 }
 void snake_variance_momentum(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
-	vec3 ref = sample(p, y);
+	vec3 ref = sample(p, s);
+	ref = (ref-dot(ref, vec3(1./3)))/(length(ref)+.001);
 	vec2 v;
 	for(int i=1; i<=n; i++){
 		vec2 a = ascend(p, -ref);
@@ -166,7 +169,9 @@ void snake_variance_mm(sampler2D s, inout vec2 p, const int n, const float dt, c
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
 		mean = mix(mean, sample(p,s), 1./i);
-		vec2 a = ascend(p, -mean);
+		vec3 chan = (mean - dot(mean, vec3(1./3)));
+		chan = -chan/(length(chan)+.001);
+		vec2 a = ascend(p, chan);
 		if(i==1)
 			v = a;
 		else v = mix(a, v, m);
@@ -177,7 +182,9 @@ void snake_variance_mean(sampler2D s, inout vec2 p, const int n, const float dt)
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
 		mean = mix(mean, sample(p,s), 1./i);
-		p+= dt*ascend(p, -mean);
+		vec3 chan = (mean - dot(mean, vec3(1./3)));
+		chan = -chan/(length(chan)+.001);
+		p+= dt*ascend(p, chan);
 	}
 }
 void snake_variance_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, const mat3 w){
@@ -234,8 +241,8 @@ void main() {
 
 	int svsteps = int(abs(warp_grad));
 	float svdt = scale_disp*warp_grad/float(svsteps);
-	//snake_variance(y, p, svsteps, svdt);
-	snake_variance_mm(y, p, svsteps, svdt, .2);
+	snake_variance(y, p, svsteps, svdt);
+	//snake_variance_momentum(y, p, svsteps, svdt, .2);
 	//snake_variance_mean(y, p, svsteps, svdt);
 	//snake_variance_rnn_mw(y, p, svsteps, svdt, _grad_proj);
 	//p += warp_grad*scale_disp*ascend(p, -sample(p,y));

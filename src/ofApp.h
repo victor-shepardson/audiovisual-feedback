@@ -201,7 +201,8 @@ class ofApp : public ofBaseApp{
 
         ofShader shader_blur, shader_resample, shader_display,
             shader_multiscale, shader_post_derivative, shader_grad,
-            shader_scale_add, shader_lp_filter, shader_warp, shader_edge_aware;
+            shader_scale_add, shader_lp_filter, shader_warp, shader_edge_aware,
+            shader_multi_warp;
 
         int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, undersample_terrain, num_scales,
             integrator, cycle_disp_mode;

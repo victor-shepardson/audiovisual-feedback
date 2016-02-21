@@ -372,6 +372,7 @@ void ofApp::loadShaders(){
     shader_scale_add.load(ofToDataPath("../../src/shader/scale_add"));
     shader_lp_filter.load(ofToDataPath("../../src/shader/lp_filter"));
     shader_warp.load(ofToDataPath("../../src/shader/warp"));
+    shader_multi_warp.load(ofToDataPath("../../src/shader/multi_warp"));
     shader_edge_aware.load(ofToDataPath("../../src/shader/edge_aware_filter"));
 }
 
@@ -635,7 +636,7 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
     }
     //for(int i=0; i<scales_to_process; i++){
     //    if(!i){
-            mov(yprime_pyramid[0], dest);
+//-------            mov(yprime_pyramid[0], dest);
     /*    }
         else{
             resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
@@ -644,7 +645,8 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
             blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
         }
     }*/
-    shader_warp.begin();
+
+    /*shader_warp.begin();
     shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
     shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
     shader_warp.setUniform2i("size",w,h);
@@ -652,6 +654,19 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
     ofRect(0,0,w,h);
     dest.end();
     shader_warp.end();
+    */
+    shader_multi_warp.begin();
+    shader_multi_warp.setUniformTexture("src", src.getTextureReference(), 0);
+    for(int i=0; i<scales_to_process; i++){
+        stringstream ss;
+        ss<<"disp"<<i;
+        shader_multi_warp.setUniformTexture(ss.str(), yprime_pyramid[i].getTextureReference(), 1+i);
+    }
+    shader_multi_warp.setUniform1i("num_tex", scales_to_process);
+    shader_multi_warp.setUniform2i("size",w,h);
+    dest.begin();
+    ofRect(0,0,w,h);
+    dest.end();
 }
 
 void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale){
