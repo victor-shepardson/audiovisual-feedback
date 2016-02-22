@@ -11,24 +11,43 @@ ofxPingPongFbo::ofxPingPongFbo(){
     pong = new ofFbo();
     aux = new ofFbo();
 }
-ofxPingPongFbo ofxPingPongFbo::copy(){
+/*ofxPingPongFbo ofxPingPongFbo::copy(){
     ofxPingPongFbo daughter;
     daughter.allocate(settings);
     return daughter;
+}*/
+ofxPingPongFbo::ofxPingPongFbo(const ofxPingPongFbo &parent){
+    ping = parent.ping;
+    pong = parent.pong;
+    aux = parent.aux;
+    settings = parent.settings;
+}
+ofxPingPongFbo& ofxPingPongFbo::operator=(const ofxPingPongFbo &parent){
+    ping = parent.ping;
+    pong = parent.pong;
+    aux = parent.aux;
+    settings = parent.settings;
+    return *this;
 }
 void ofxPingPongFbo::destroy(){
     delete ping;
     delete pong;
     delete aux;
 }
+//lazy allocation so that pong+aux won't hog memory when unused
 void ofxPingPongFbo::allocate(ofFbo::Settings s){
     ping->allocate(s);
-    pong->allocate(s);
-    aux->allocate(s);
+    //pong->allocate(s);
+    //aux->allocate(s);
     settings = s;
 }
+void ofxPingPongFbo::swap(){
+    ofFbo *temp = ping;
+    ping = pong;
+    pong = temp;
+}
 void ofxPingPongFbo::save(){
-    //if(!aux->isAllocated()) aux->allocate(settings);
+    if(!aux->isAllocated()) aux->allocate(settings);
     aux->begin();
     ping->draw(0,0);
     aux->end();
@@ -48,20 +67,18 @@ ofTexture& ofxPingPongFbo::getTextureReference(int i){
     return ping->getTextureReference(i);
 }
 int ofxPingPongFbo::getWidth(){
-    return settings.width;
+    return ping->getWidth();
 }
 int ofxPingPongFbo::getHeight(){
-    return settings.height;
+    return ping->getHeight();
 }
 void ofxPingPongFbo::begin(){
-    //if(!pong->isAllocated()) pong->allocate(settings);
+    if(!pong->isAllocated()) pong->allocate(settings);
     pong->begin();
 }
 void ofxPingPongFbo::end(){
     pong->end();
-    ofFbo *temp = ping;
-    ping = pong;
-    pong = temp;
+    swap();
 }
 void ofxPingPongFbo::beginInPlace(){
     ping->begin();
@@ -69,28 +86,33 @@ void ofxPingPongFbo::beginInPlace(){
 void ofxPingPongFbo::endInPlace(){
     ping->end();
 }
-void ofxPingPongFbo::readToPixels(ofPixels & pixels, int attachmentPoint = 0) const{
-    ping->readToPixels(pixels, attachmentPoint);
+void ofxPingPongFbo::readToPixels(ofPixels & pixels, int attachmentPoint = 0) {
+    reader.readToPixels(*ping, pixels);
+    //ping->readToPixels(pixels, attachmentPoint);
 }
-void ofxPingPongFbo::readToPixels(ofFloatPixels & pixels, int attachmentPoint = 0) const{
-    ping->readToPixels(pixels, attachmentPoint);
+void ofxPingPongFbo::readToPixels(ofFloatPixels & pixels, int attachmentPoint = 0) {
+    reader.readToFloatPixels(*ping, pixels);
+    //ping->readToPixels(pixels, attachmentPoint);
 }
 int ofxPingPongFbo::getNumTextures(){
-    return settings.numColorbuffers;
+    return ping->getNumTextures();
 }
 // !!!
 // unsure if these will work with beginInPlace() and endInPlace()
 void ofxPingPongFbo::setActiveDrawBuffer(int i){
     ping->setActiveDrawBuffer(i);
-    pong->setActiveDrawBuffer(i);
+    //pong->setActiveDrawBuffer(i);
+    //aux->setActiveDrawBuffer(i);
 }
 void ofxPingPongFbo::setActiveDrawBuffers(const vector<int>& i){
     ping->setActiveDrawBuffers(i);
-    pong->setActiveDrawBuffers(i);
+    //pong->setActiveDrawBuffers(i);
+    //aux->setActiveDrawBuffers(i);
 }
 void ofxPingPongFbo::activateAllDrawBuffers(){
     ping->activateAllDrawBuffers();
-    pong->activateAllDrawBuffers();
+    //pong->activateAllDrawBuffers();
+    //aux->activateAllDrawBuffers();
 }
 
 //====================================================================
@@ -110,7 +132,7 @@ template <class T>
 void ofxDynamicalTexture<T>::allocate(ofFbo::Settings s){
     y.allocate(s);
     ytemp.allocate(s);
-    for(int i=0; i<5; i++){
+    for(int i=0; i<4; i++){
         ofxPingPongFbo fbo;
         fbo.allocate(s);
         k.push_back(fbo);
@@ -138,9 +160,9 @@ void ofxDynamicalTexture<T>::rkUpdate(float dt){
     shader_rkupdate.setUniformTexture("k2", k[2].getTextureReference(),3);
     shader_rkupdate.setUniformTexture("k3", k[3].getTextureReference(),4);
     shader_rkupdate.setUniform1f("dt", dt);
-    ytemp.begin();
+    ytemp.beginInPlace();
     ofRect(0, 0, w, h);
-    ytemp.end();
+    ytemp.endInPlace();
     shader_rkupdate.end();
 }
 
@@ -159,9 +181,9 @@ void ofxDynamicalTexture<T>::rkUpdate(float dt, int i, ofxPingPongFbo &dest){
     shader_rkupdate.setUniformTexture("y", y.getTextureReference(),0);
     shader_rkupdate.setUniformTexture("k0", k[i].getTextureReference(),1);
     shader_rkupdate.setUniform1f("dt", dt);
-    dest.begin();
+    dest.beginInPlace();
     ofRect(0, 0, w, h);
-    dest.end();
+    dest.endInPlace();
     shader_rkupdate.end();
 }
 
@@ -170,7 +192,7 @@ template <class T>
 void ofxDynamicalTexture<T>::rkStep(float t, float dt, int i){
     (app->*derivative)(t+dt, k[i]);
 }
-//use runge-kutta algorithm to approximate y(t+dt). k must contain at least 4 scratch fbos
+//use runge-kutta algorithm to approximate y(t+dt). k must contain 4 scratch fbos
 template <class T>
 void ofxDynamicalTexture<T>::tock(float t, float dt, int i){
     switch(i){
@@ -191,9 +213,9 @@ template <class T>
 void ofxDynamicalTexture<T>::tick(float t, float dt, int i){
     switch(i){
         case 0:
-            y.begin();
+            y.beginInPlace();
             ytemp.draw(0,0,y.getWidth(),y.getHeight());
-            y.end();
+            y.endInPlace();
             break;
         case 1:
             rkUpdate(.5*dt, 0, ytemp);
@@ -268,9 +290,10 @@ void ofApp::setup(){
 
     realtime = true;
     use_camera = false;
+    recording = false;
 
     oversample_waveform = 1;
-    undersample_terrain = 4;
+    int undersample_terrain = 10;
 
     float oversample_all = 1.;
     fullscreen = false;
@@ -288,6 +311,9 @@ void ofApp::setup(){
 
     render_width = 1920*oversample_all;
     render_height = 1080*oversample_all;
+
+    readback_width = 1920/undersample_terrain;
+    readback_height = 1080/undersample_terrain;
 
     ofSetVerticalSync(true); //does not appear to be working on windows w/ of 0.8.4
 
@@ -320,7 +346,7 @@ void ofApp::setup(){
 
     cycle_disp_mode = 0;
 
-    disp_mode = 4;
+    disp_mode = 0;
     disp_scale = 0;
     disp_buf = 0;
 
@@ -335,7 +361,7 @@ void ofApp::setup(){
 
     channels = 2;
     frame_rate = 24;
-    sample_rate = 44100;
+    sample_rate = 48000;
     audio_delay = .5;
     int frames_to_keep = 48;
 
@@ -344,14 +370,13 @@ void ofApp::setup(){
     ofSoundStreamListDevices();
     ss.setDeviceID(2);
     ss.setup(this, 2, 0, sample_rate, 256, 4);
-    //ss.start();
-    //ofSoundStreamSetup(2, 0, this, sample_rate, 256, 4);
 
     if(use_camera){
         camera.setVerbose(true);
         camera.listDevices();
         camera.initGrabber(render_width, render_height);
     }
+
     printf("setup complete\n");
 }
 
@@ -402,23 +427,26 @@ void ofApp::allocateFbos(){
     lp = new ofxDynamicalTexture<ofApp>(this, &ofApp::lpDerivative);
     lp->allocate(fbo_params);
 
+    agent_fbo = ofxPingPongFbo();
     display_fbo = ofxPingPongFbo();
+    readback_fbo = ofxPingPongFbo();
+
     display_fbo.allocate(fbo_params);
-    render_fbo = ofxPingPongFbo();
-    render_fbo.allocate(fbo_params);
+
+    //render_fbo = ofxPingPongFbo();
+    //render_fbo.allocate(fbo_params);
 
     ofFbo::Settings agent_fbo_params = fbo_params;
     agent_fbo_params.width *= oversample_waveform;
     agent_fbo_params.height *= oversample_waveform;
     agent_fbo_params.numColorbuffers = 3;
-    agent_fbo = ofxPingPongFbo();
     agent_fbo.allocate(agent_fbo_params);
 
     ofFbo::Settings readback_fbo_params = fbo_params;
-    readback_fbo_params.width /= undersample_terrain;
-    readback_fbo_params.height /= undersample_terrain;
-    readback_fbo = ofxPingPongFbo();
+    readback_fbo_params.width = readback_width;
+    readback_fbo_params.height = readback_height;
     readback_fbo.allocate(readback_fbo_params);
+
 }
 
 void ofApp::setResolution(int x, int y){
@@ -426,6 +454,7 @@ void ofApp::setResolution(int x, int y){
     ofxDynamicalTexture<ofApp> *lp_old = lp;
 
     ofxPingPongFbo agent_fbo_old = agent_fbo;
+    agent_fbo = ofxPingPongFbo();
 
     for(int i=0; i<y_pyramid.size(); i++)
         y_pyramid[i].destroy();
@@ -435,11 +464,13 @@ void ofApp::setResolution(int x, int y){
     yprime_pyramid.clear();
 
     display_fbo.destroy();
+    display_fbo = ofxPingPongFbo();
+
     readback_fbo.destroy();
+    readback_fbo = ofxPingPongFbo();
 
     fbo_params.width = x;
     fbo_params.height = y;
-
     allocateFbos();
 
     resample(dyn_old->getState(), dyn->getState());
@@ -453,6 +484,7 @@ void ofApp::setResolution(int x, int y){
     resample(agent_fbo_old, agent_fbo);
     agent_fbo_old.destroy();
 }
+
 void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     //resample src to dest with truncated gaussian kernel
     float sf = float(src.getWidth())/dest.getWidth();
@@ -471,9 +503,9 @@ void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
         shader_resample.setUniformTexture("src0", src.getTextureReference(0), 0);
         shader_resample.setUniform2i("dest_size", dest.getWidth(), dest.getHeight());
         shader_resample.setUniform1i("num_textures", 1);
-        dest.begin();
+        dest.beginInPlace();
         ofRect(0,0,dest.getWidth(), dest.getHeight());
-        dest.end();
+        dest.endInPlace();
         shader_resample.end();
     }
 }
@@ -524,13 +556,13 @@ void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
     }
     int w = dest.getWidth(), h = dest.getHeight();
     shader_blur.begin();
-    shader_blur.setUniformTexture("state", src.getTextureReference(),0);
+    shader_blur.setUniformTexture("state", src.getTextureReference(0),0);
     shader_blur.setUniform2i("size", w, h);
     shader_blur.setUniform2f("dir",0,radius);
     dest.beginInPlace();
     ofRect(0, 0, w, h);
     dest.endInPlace();
-    shader_blur.setUniformTexture("state", dest.getTextureReference(),0);
+    shader_blur.setUniformTexture("state", dest.getTextureReference(0),0);
     shader_blur.setUniform2f("dir",radius,0);
     dest.begin();
     ofRect(0, 0, w, h);
@@ -540,7 +572,7 @@ void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
 void ofApp::edge_aware_filter(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     int w = dest.getWidth(), h = dest.getHeight();
     shader_edge_aware.begin();
-    shader_edge_aware.setUniformTexture("state", src.getTextureReference(),0);
+    shader_edge_aware.setUniformTexture("state", src.getTextureReference(0),0);
     shader_edge_aware.setUniform2i("size", w, h);
     dest.begin();
     ofRect(0, 0, w, h);
@@ -560,8 +592,8 @@ void ofApp::sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest){
 void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest){
     int w = dest.getWidth(), h = dest.getHeight();
     shader_scale_add.begin();
-    shader_scale_add.setUniformTexture("x",x.getTextureReference(),0);
-    shader_scale_add.setUniformTexture("y",y.getTextureReference(),1);
+    shader_scale_add.setUniformTexture("x",x.getTextureReference(0),0);
+    shader_scale_add.setUniformTexture("y",y.getTextureReference(0),1);
     shader_scale_add.setUniform2i("size", w, h);
     shader_scale_add.setUniform1f("a",a);
     shader_scale_add.setUniform1f("b",b);
@@ -589,7 +621,7 @@ void ofApp::gradients(ofxPingPongFbo &src){
     //render x and y color gradients of texture 0 into textures 1 and 2 of the fbo
     shader_grad.begin();
     shader_grad.setUniformTexture("state", src.getTextureReference(0),0);
-    shader_grad.setUniform2i("size", src.getWidth(),src.getHeight());
+    shader_grad.setUniform2i("size", src.getWidth(), src.getHeight());
     src.beginInPlace();
     vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
     src.setActiveDrawBuffers(grad_bufs);
@@ -600,9 +632,15 @@ void ofApp::gradients(ofxPingPongFbo &src){
 }
 
 void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
-    for(int i=0; i<filter_steps; i++)
-        edge_aware_filter(dest, dest);
-    blur(src, dest, blur_post);
+    if(!filter_steps){
+            blur(src, dest, blur_post);
+    }
+    else{
+        edge_aware_filter(src, dest);
+        for(int i=1; i<filter_steps; i++)
+            edge_aware_filter(dest, dest);
+        blur(dest, dest, blur_post);
+    }
 }
 
 void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
@@ -693,9 +731,9 @@ void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, of
     int w = y.getWidth(), h = y.getHeight();
     shader_post_derivative.begin();
     shader_post_derivative.setUniform1f("t",t);
-    shader_post_derivative.setUniformTexture("y", y.getTextureReference(),0);
-    shader_post_derivative.setUniformTexture("new_y", new_y.getTextureReference(),1);
-    shader_post_derivative.setUniformTexture("lp", lp.getTextureReference(), 2);
+    shader_post_derivative.setUniformTexture("y", y.getTextureReference(0),0);
+    shader_post_derivative.setUniformTexture("new_y", new_y.getTextureReference(0),1);
+    shader_post_derivative.setUniformTexture("lp", lp.getTextureReference(0), 2);
     shader_post_derivative.setUniformTexture("agents", agent_fbo.getTextureReference(0),3);
     shader_post_derivative.setUniformTexture("agradx", agent_fbo.getTextureReference(1),4);
     shader_post_derivative.setUniformTexture("agrady", agent_fbo.getTextureReference(2),5);
@@ -742,16 +780,16 @@ void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
     float beta = lp_radius;
     float epsilon = pow(.001,lp_frames+1);
     shader_lp_filter.begin();
-    shader_lp_filter.setUniformTexture("x", dyn->getState().getTextureReference(), 0);
-    shader_lp_filter.setUniformTexture("y", lp->getState().getTextureReference(), 1);
+    shader_lp_filter.setUniformTexture("x", dyn->getState().getTextureReference(0), 0);
+    shader_lp_filter.setUniformTexture("y", lp->getState().getTextureReference(0), 1);
     shader_lp_filter.setUniform2i("size", w, h);
     shader_lp_filter.setUniform1f("alpha",alpha);
     shader_lp_filter.setUniform1f("beta",beta);
     shader_lp_filter.setUniform1f("epsilon",epsilon);
     shader_lp_filter.setUniform1f("time_scale",time_scale);
-    yprime.begin();
+    yprime.beginInPlace();
     ofRect(0,0,w,h);
-    yprime.end();
+    yprime.endInPlace();
     shader_lp_filter.end();
 }
 
@@ -760,7 +798,23 @@ void ofApp::update(){
     if(use_camera) camera.update();
     ofSetFrameRate(frame_rate);
     ofSetWindowTitle(ofToString(ofGetFrameRate()));
-    if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%5;
+    if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%6;
+
+    if(recording){
+        ofFloatPixels pix;
+        display_fbo.readToPixels(pix,0);
+        bool success = vr.addFrame(pix);
+        if (!success) {
+            ofLogWarning("This frame was not added!");
+        }
+    }
+    // Check if the video recorder encountered any error while writing video frame or audio smaples.
+/*    if (vr.hasVideoError()) {
+        ofLogWarning("The video recorder failed to write some frames!");
+    }
+    if (vr.hasAudioError()) {
+        ofLogWarning("The video recorder failed to write some audio samples!");
+    }*/
 }
 
 void ofApp::draw(){
@@ -804,6 +858,10 @@ void ofApp::draw(){
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
     switch(disp_mode){
         case 0:
+            mov(y_fbo, display_fbo);
+            b2u(display_fbo, display_fbo);
+            break;
+        case 1:
             shader_display.begin();
             shader_display.setUniform2i("size", display_fbo.getWidth(), display_fbo.getHeight());
             shader_display.setUniformTexture("state", y_fbo.getTextureReference(),0);
@@ -812,22 +870,25 @@ void ofApp::draw(){
             display_fbo.end();
             shader_display.end();
             break;
-        case 1:
+        case 2:
             resample(agent_fbo, display_fbo);
             break;
-        case 2:
+        case 3:
+            if(!disp_scale)
+                mov(y_pyramid[disp_scale], display_fbo);
+            else
+                resample(y_pyramid[disp_scale], display_fbo);
+            b2u(display_fbo, display_fbo);
+            break;
+        case 4:
             if(!disp_scale)
                 mov(yprime_pyramid[disp_scale], display_fbo);
             else
                 resample(yprime_pyramid[disp_scale], display_fbo);
             b2u(display_fbo, display_fbo);
             break;
-        case 3:
+        case 5:
             mov(lp->getState(), display_fbo);
-            b2u(display_fbo, display_fbo);
-            break;
-        case 4:
-            mov(y_fbo, display_fbo);
             b2u(display_fbo, display_fbo);
             break;
 /*        case 4:
@@ -850,7 +911,7 @@ void ofApp::draw(){
     //resampleToWindow(display_fbo);
 
     //read pixels back from video memory and put a new frame in the VWT
-    if(undersample_terrain > 1){
+    if(readback_fbo.getWidth() != y_fbo.getHeight()){
         resample(y_fbo, readback_fbo);
         b2u(readback_fbo, readback_fbo);
     }
@@ -861,6 +922,7 @@ void ofApp::draw(){
     readback_fbo.readToPixels(pix,0);
     vwt->insert_frame(pix);
 
+
     //if in render mode, compute audio in the draw loop
     //delay should be equal to frame duration
     if(!realtime){
@@ -868,15 +930,7 @@ void ofApp::draw(){
         int nsamps = frame_duration_samps*channels;
         float * samps = (float*)malloc(nsamps*sizeof(float));
         vwt->audioOut(samps, frame_duration_samps, channels);
-        for(int i=0; i<nsamps; i++){
-            union{
-                int32_t word;
-                char bytes[4];
-            } v;
-            v.word = double(1<<30)*double(samps[i]);
-            audio_file.write(v.bytes+1,3);
-            audio_file_size+=3;
-        }
+        writeAudioSamps(samps, nsamps);
         free((void*)samps);
 
         string timestamp = ofGetTimestampString();
@@ -953,20 +1007,43 @@ void ofApp::toggleRenderMode(){
         beginRenderMode();
 }
 
-void ofApp::beginRenderMode(){
-    cout<<"render mode"<<endl;
+void ofApp::toggleVideoRecord(){
+    recording = !recording;
+    if(recording)
+        beginVideoRecord();
+    else
+        endVideoRecord();
+}
 
-    setResolution(render_width, render_height);
+void ofApp::beginVideoRecord(){
+    int w = display_fbo.getWidth(), h = display_fbo.getHeight();
 
-    vwt->setAudioDelay(1./frame_rate + 1./sample_rate);
-    //open a new wav file and write header
+    //vr.setVideoCodec("dirac");
+
+    //vr.setVideoCodec("mpeg4");
+
+    vr.setVideoCodec("ffv1");
+    vr.setMovFileExtension(".avi");
+
+    vr.setFfmpegLocation("\"C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe\"");
+
+    string fname = ofGetTimestampString();
+
+    vr.setup(fname, w, h, frame_rate, sample_rate, channels);
+    //vr.setup(fname, w, h, frame_rate, 0, 0);
+
+    vr.start();
+}
+
+void ofApp::endVideoRecord(){
+    vr.close();
+}
+
+void ofApp::openAudioFile(string fname){
     audio_file_size = 0;
-    stringstream ss;
-    cur_save_dir = ofDirectory(ofGetTimestampString());
-    cur_save_dir.create();
-    ss << cur_save_dir.path()<<ofToDataPath("/audio.wav");
+
     char write_buf[44];
-    audio_file.open(ss.str().c_str(), ofstream::binary);
+    audio_file.open(fname.c_str(), ofstream::binary);
 
     strncpy(write_buf,"RIFF",4);
     *((int32_t*)(write_buf+4)) = 0; //dummy size
@@ -984,12 +1061,7 @@ void ofApp::beginRenderMode(){
     audio_file.write(write_buf, 44);
 }
 
-void ofApp::endRenderMode(){
-    cout<<"realtime mode"<<endl;
-
-    setResolution(realtime_width, realtime_height);
-
-    vwt->setAudioDelay(audio_delay);
+void ofApp::closeAudioFile(){
     //write size of current wav file and close
     union{
         int32_t word;
@@ -1005,6 +1077,45 @@ void ofApp::endRenderMode(){
     audio_file_size = 0;
 }
 
+void ofApp::writeAudioSamps(float *samps, int nsamps){
+    for(int i=0; i<nsamps; i++){
+        union{
+        int32_t word;
+            char bytes[4];
+        } v;
+        v.word = double(1<<30)*double(samps[i]);
+        audio_file.write(v.bytes+1,3);
+        audio_file_size+=3;
+    }
+}
+
+void ofApp::beginRenderMode(){
+    cout<<"render mode"<<endl;
+
+    setResolution(render_width, render_height);
+
+    //set minimal lag of audio behind video
+    vwt->setAudioDelay(1./frame_rate + 1./sample_rate);
+
+    //open a new wav file and write header
+    stringstream ss;
+    cur_save_dir = ofDirectory(ofGetTimestampString());
+    cur_save_dir.create();
+    ss << cur_save_dir.path()<<ofToDataPath("/audio.wav");
+
+    openAudioFile(ss.str());
+}
+
+void ofApp::endRenderMode(){
+    cout<<"realtime mode"<<endl;
+
+    setResolution(realtime_width, realtime_height);
+
+    vwt->setAudioDelay(audio_delay);
+
+    closeAudioFile();
+}
+
 void ofApp::keyPressed(int key){
     if(key=='a'){
         mute = !mute;
@@ -1018,7 +1129,7 @@ void ofApp::keyPressed(int key){
         cout<<"cycle display mode: "<<cycle_disp_mode<<endl;
     }
     if(key=='d'){
-        disp_mode = ofWrap(disp_mode+1, 0, 5);
+        disp_mode = ofWrap(disp_mode+1, 0, 6);
         cout<<"display mode: "<<disp_mode<<endl;
     }
     if(key=='f'){
@@ -1075,6 +1186,9 @@ void ofApp::keyPressed(int key){
     if(key=='m'){
         toggleRenderMode();
     }
+    if(key=='v'){
+        toggleVideoRecord();
+    }
 }
 
 void ofApp::usage(){
@@ -1092,6 +1206,7 @@ void ofApp::usage(){
         "p - change display scale for pyramid"<<endl<<
         "r - randomize video"<<endl<<
         "s - save current frame as png"<<endl<<
+        "v - toggle video recorder"<<endl<<
         "[ - halve resolution"<<endl<<
         "] - double resolution"<<endl;
 }
@@ -1114,7 +1229,11 @@ void ofApp::dragEvent(ofDragInfo dragInfo){
 }
 
 void ofApp::audioOut(float * output, int bufferSize, int nChannels){
-    if(mute) output=0;
-    if(drawing && realtime)
+    if(drawing && realtime){
         vwt->audioOut(output, bufferSize, nChannels);
+        if(recording)
+            vr.addAudioSamples(output,bufferSize, nChannels);
+        if(mute)
+            memset((void *)output, 0, bufferSize*nChannels*sizeof(float));
+    }
 }

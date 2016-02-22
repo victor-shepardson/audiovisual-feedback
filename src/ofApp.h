@@ -4,31 +4,16 @@
 #include "ofxGui.h"
 #include "ofxOscParameterSync.h"
 #include "ofxVideoWaveTerrain.h"
+#include "ofxVideoRecorder.h"
+#include "ofxFastFboReader.h"
 
-//ok, it turns out you can't magically sample/render to the same texture in an fbo;
-//at least not across blocks computed on the GPU, it looks like. whoops!
-//need a ping-ponging fbo with two textures
-//the main blur is fixed for now, inelegantly
-//agent blur should be wrong but I haven't noticed any artifacts
-//the only direct feedback in the runge-kutta seems ok since it is the update step, which is local to each pixel
-
-//why does the blurred state display upside down??
-
-//should maybe wrap utility stuff like blur and gradient in a class
-
-//should look into writing own shaders for agent drawing instead of relying on blending
-
-//look into kalieidoscoping/symmetries
-
-//build abstractions for multi-scale processes:
-// - downsample, upsample shaders
-// - accumulation of derivatives:
-// - for each scale:[downsample image -> compute derivative -> upsample derivative -> accumulate] -> integrate
-
+//
 class ofxPingPongFbo{
 public:
     ofxPingPongFbo();
-    ofxPingPongFbo copy();
+    ofxPingPongFbo& operator=(const ofxPingPongFbo &);
+    ofxPingPongFbo(const ofxPingPongFbo &);
+    //ofxPingPongFbo copy();
     void destroy();
     void allocate(ofFbo::Settings);
     void draw(int,int,int,int);
@@ -36,14 +21,15 @@ public:
     ofTexture& getTextureReference(int);
     int getWidth();
     int getHeight();
+    void swap();
     void save();
     void restore();
     void begin();
     void end();
     void beginInPlace();
     void endInPlace();
-    void readToPixels(ofPixels&, int) const;
-    void readToPixels(ofFloatPixels&, int) const;
+    void readToPixels(ofPixels&, int) ;
+    void readToPixels(ofFloatPixels&, int) ;
     int getNumTextures();
     void setActiveDrawBuffer(int);
 	void setActiveDrawBuffers(const vector<int>&);
@@ -51,6 +37,7 @@ public:
     ofFbo::Settings settings;
 private:
     ofFbo *ping, *pong, *aux;
+    ofxFastFboReader reader;
 };
 
 template <class T>
@@ -102,6 +89,12 @@ class ofApp : public ofBaseApp{
         void toggleRenderMode();
         void beginRenderMode();
         void endRenderMode();
+        void openAudioFile(string fname);
+        void closeAudioFile();
+        void writeAudioSamps(float *samps, int nsamps);
+        void toggleVideoRecord();
+        void beginVideoRecord();
+        void endVideoRecord();
 
         void loadShaders();
 
@@ -117,9 +110,8 @@ class ofApp : public ofBaseApp{
         void windowResized(int w, int h);
         void dragEvent(ofDragInfo dragInfo);
         void gotMessage(ofMessage msg);
-        void initRandom(ofxPingPongFbo &target, int mode);
+        void initRandom(ofxPingPongFbo &target, int mode); //todo: replace with GPU noise in modular style
         void initParams(int &seed);
-        void toggleRecord(int& r);
 
         void dynDerivative(float t, ofxPingPongFbo &yprime);
         void lpDerivative(float t, ofxPingPongFbo &yprime);
@@ -204,17 +196,18 @@ class ofApp : public ofBaseApp{
             shader_scale_add, shader_lp_filter, shader_warp, shader_edge_aware,
             shader_multi_warp;
 
-        int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, undersample_terrain, num_scales,
+        int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, num_scales,
             integrator, cycle_disp_mode;
 
-        int window_width, window_height, render_width, render_height, realtime_width, realtime_height;
+        int window_width, window_height, render_width, render_height, realtime_width, realtime_height, readback_width, readback_height;
 
         double sample_rate, frame_rate, audio_delay, scale_factor;
 
         bool drawing, //false in setup, true once draw loop begins
-            realtime, use_camera, fullscreen, mute, discard_largest_scale;
+            realtime, use_camera, fullscreen, mute, discard_largest_scale, recording;
 
         ofVideoGrabber camera;
+        ofxVideoRecorder vr;
 
         ofxVideoWaveTerrain *vwt;
 

@@ -79,6 +79,7 @@
 			<Add directory="../../../addons/ofxOsc/libs/oscpack/src/ip/win32" />
 			<Add directory="../../../addons/ofxOsc/libs/oscpack/src/osc" />
 			<Add directory="../../../addons/ofxVideoWaveTerrain/src" />
+			<Add directory="../../../addons/ofxVideoRecorder/src" />
 		</Compiler>
 		<Linker>
 			<Add library="..\..\..\libs\FreeImage\lib\win_cb\FreeImage.lib" />
@@ -279,6 +280,8 @@
 		<Unit filename="../../../addons/ofxOsc/src/ofxOscSender.h">
 			<Option virtualFolder="addons/ofxOsc/src" />
 		</Unit>
+		<Unit filename="../../../addons/ofxVideoRecorder/src/ofxVideoRecorder.cpp" />
+		<Unit filename="../../../addons/ofxVideoRecorder/src/ofxVideoRecorder.h" />
 		<Unit filename="../../../addons/ofxVideoWaveTerrain/src/ofxVideoWaveTerrain.cpp" />
 		<Unit filename="../../../addons/ofxVideoWaveTerrain/src/ofxVideoWaveTerrain.h" />
 		<Unit filename="icon.rc">
