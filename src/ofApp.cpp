@@ -309,8 +309,8 @@ void ofApp::setup(){
     realtime_width = window_width*oversample_all;
     realtime_height = window_height*oversample_all;
 
-    render_width = 1920*oversample_all;
-    render_height = 1080*oversample_all;
+    render_width = 1920;//*oversample_all;
+    render_height = 1080;//*oversample_all;
 
     readback_width = 1920/undersample_terrain;
     readback_height = 1080/undersample_terrain;
@@ -368,7 +368,7 @@ void ofApp::setup(){
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
-    ss.setDeviceID(2);
+    ss.setDeviceID(0);
     ss.setup(this, 2, 0, sample_rate, 256, 4);
 
     if(use_camera){
@@ -399,9 +399,31 @@ void ofApp::loadShaders(){
     shader_warp.load(ofToDataPath("../../src/shader/warp"));
     shader_multi_warp.load(ofToDataPath("../../src/shader/multi_warp"));
     shader_edge_aware.load(ofToDataPath("../../src/shader/edge_aware_filter"));
+    shader_f2s.load(ofToDataPath("../../src/shader/f2s"));
 }
 
+//only happens once, in setup()
 void ofApp::allocateFbos(){
+
+    reallocateFbos();
+
+    readback_fbo = ofxPingPongFbo();
+    ofFbo::Settings readback_fbo_params = fbo_params;
+    readback_fbo_params.width = readback_width;
+    readback_fbo_params.height = readback_height;
+    readback_fbo.allocate(readback_fbo_params);
+
+    render_fbo = ofxPingPongFbo();
+    ofFbo::Settings render_fbo_params = fbo_params;
+    render_fbo_params.internalformat = GL_RGB8;
+    render_fbo_params.width = render_width;
+    render_fbo_params.height = render_height;
+    render_fbo.allocate(render_fbo_params);
+
+}
+
+//allocate all size-changing fbos
+void ofApp::reallocateFbos(){
     ofFbo::Settings y_pyramid_params = fbo_params;
     y_pyramid_params.numColorbuffers = 3; //store gradients
     for(int i=0; i<num_scales; i++){
@@ -427,28 +449,20 @@ void ofApp::allocateFbos(){
     lp = new ofxDynamicalTexture<ofApp>(this, &ofApp::lpDerivative);
     lp->allocate(fbo_params);
 
-    agent_fbo = ofxPingPongFbo();
     display_fbo = ofxPingPongFbo();
-    readback_fbo = ofxPingPongFbo();
 
     display_fbo.allocate(fbo_params);
 
-    //render_fbo = ofxPingPongFbo();
-    //render_fbo.allocate(fbo_params);
-
+    agent_fbo = ofxPingPongFbo();
     ofFbo::Settings agent_fbo_params = fbo_params;
     agent_fbo_params.width *= oversample_waveform;
     agent_fbo_params.height *= oversample_waveform;
     agent_fbo_params.numColorbuffers = 3;
     agent_fbo.allocate(agent_fbo_params);
 
-    ofFbo::Settings readback_fbo_params = fbo_params;
-    readback_fbo_params.width = readback_width;
-    readback_fbo_params.height = readback_height;
-    readback_fbo.allocate(readback_fbo_params);
-
 }
 
+//note that render_fbo, readback_fbo do not currently change size
 void ofApp::setResolution(int x, int y){
     ofxDynamicalTexture<ofApp> *dyn_old = dyn;
     ofxDynamicalTexture<ofApp> *lp_old = lp;
@@ -466,12 +480,9 @@ void ofApp::setResolution(int x, int y){
     display_fbo.destroy();
     display_fbo = ofxPingPongFbo();
 
-    readback_fbo.destroy();
-    readback_fbo = ofxPingPongFbo();
-
     fbo_params.width = x;
     fbo_params.height = y;
-    allocateFbos();
+    reallocateFbos();
 
     resample(dyn_old->getState(), dyn->getState());
     dyn_old->destroy();
@@ -601,6 +612,16 @@ void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, of
     ofRect(0,0,w,h);
     dest.endInPlace();
     shader_scale_add.end();
+}
+void ofApp::f2s(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    int w = dest.getWidth(), h = dest.getHeight();
+    shader_f2s.begin();
+    shader_f2s.setUniformTexture("src",src.getTextureReference(0),0);
+    shader_scale_add.setUniform2i("size", w, h);
+    dest.beginInPlace();
+    ofRect(0,0,w,h);
+    dest.endInPlace();
+    shader_f2s.end();
 }
 void ofApp::mix(float m, ofxPingPongFbo &x, ofxPingPongFbo &y, ofxPingPongFbo &dest){
     scale_add(1-m, x, m, y, dest);
@@ -799,22 +820,6 @@ void ofApp::update(){
     ofSetFrameRate(frame_rate);
     ofSetWindowTitle(ofToString(ofGetFrameRate()));
     if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%6;
-
-    if(recording){
-        ofFloatPixels pix;
-        display_fbo.readToPixels(pix,0);
-        bool success = vr.addFrame(pix);
-        if (!success) {
-            ofLogWarning("This frame was not added!");
-        }
-    }
-    // Check if the video recorder encountered any error while writing video frame or audio smaples.
-/*    if (vr.hasVideoError()) {
-        ofLogWarning("The video recorder failed to write some frames!");
-    }
-    if (vr.hasAudioError()) {
-        ofLogWarning("The video recorder failed to write some audio samples!");
-    }*/
 }
 
 void ofApp::draw(){
@@ -891,24 +896,33 @@ void ofApp::draw(){
             mov(lp->getState(), display_fbo);
             b2u(display_fbo, display_fbo);
             break;
-/*        case 4:
-            shader_display.begin();
-            shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(1),0);
-            ofRect(0,0,ww,wh);
-            shader_display.end();
-            break;
-        case 5:
-            shader_display.begin();
-            shader_display.setUniform2i("size",ww,wh);
-            shader_display.setUniformTexture("state", y_pyramid[disp_scale].getTextureReference(2),0);
-            ofRect(0,0,ww,wh);
-            shader_display.end();
-            break;
-            */
     }
-    display_fbo.draw(0,0,ww,wh);
+    //display_fbo.draw(0,0,ww,wh);
     //resampleToWindow(display_fbo);
+
+    if(recording){
+        uint64_t time;
+
+        //ofFloatPixels pix;
+        ofPixels pix;
+
+        mov(display_fbo, render_fbo);
+
+        time = ofGetSystemTimeMicros();
+        render_fbo.readToPixels(pix,0);
+        //display_fbo.readToPixels(pix,0);
+        cout<<"readback time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
+
+        time = ofGetSystemTimeMicros();
+        bool success = vr.addFrame(pix);
+        cout<<"frame add time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
+        if (!success) {
+            ofLogWarning("This frame was not added!");
+        }
+    }
+    else
+        mov(display_fbo, render_fbo);
+    render_fbo.draw(0,0,ww,wh);
 
     //read pixels back from video memory and put a new frame in the VWT
     if(readback_fbo.getWidth() != y_fbo.getHeight()){
@@ -1016,19 +1030,42 @@ void ofApp::toggleVideoRecord(){
 }
 
 void ofApp::beginVideoRecord(){
-    int w = display_fbo.getWidth(), h = display_fbo.getHeight();
+    int w = render_fbo.getWidth(), h = render_fbo.getHeight();
 
-    //vr.setVideoCodec("dirac");
+    stringstream ss;
+    ss<<int(h*w*frame_rate*24/1000)<<"k";
+    cout<<ss.str()<<endl;
+    vr.setVideoBitrate(ss.str());
 
-    //vr.setVideoCodec("mpeg4");
+   // vr.setVideoCodec("ffv1"); //black or frozen video in vlc, eats memory
+    //vr.setVideoCodec("ffvhuff"); //works but memory fills quickly and crashes
+    //vr.setVideoCodec("huffyuv"); //works, memory still fills quickly
+    //vr.setVideoCodec("ljpeg"); //video frozen, eats memory
+    //vr.setVideoCodec("qtrle"); //eats memory, sound plays but no image
+    //vr.setVideoCodec("snow"); //eats memory, vlc can't decode
+    //vr.setVideoCodec("libwebp"); //eats memory, sound but no image in vlc
+    //vr.setVideoCodec("zlib"); //same
+    //vr.setMovFileExtension(".avi");
 
-    vr.setVideoCodec("ffv1");
-    vr.setMovFileExtension(".avi");
+    //vr.setVideoCodec("dirac"); vr.setAdditionalVideoFlags("-strict -1"); //ffmpeg crashes immediately
+    //vr.setVideoCodec("vc2"); vr.setAdditionalVideoFlags("-strict -1"); //same as dirac
+    //vr.setVideoCodec("libschroedinger"); //ffmpeg crashes at end, video broken
+
+    vr.setVideoCodec("mpeg4"); //flat memory use, works great, very lossy;
+    //with bit rate set as above, slow memory growth + spike at end, good quality
+
+    //vr.setVideoCodec("libx264"); //video likes to freeze part way through, lossy, memory fills fairly quickly
+    //vr.setVideoCodec("libx264rgb"); //same
+
+    //vr.setVideoCodec("jpeg2000"); //memory fills extremely fast, hangs at end, video broken
+    //vr.setVideoCodec("libopenjpeg"); //even more garbage
+
 
     vr.setFfmpegLocation("\"C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe\"");
 
     string fname = ofGetTimestampString();
 
+    //vr.setup(fname, w, h, frame_rate, sample_rate, channels);
     vr.setup(fname, w, h, frame_rate, sample_rate, channels);
     //vr.setup(fname, w, h, frame_rate, 0, 0);
 
