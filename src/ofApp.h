@@ -128,7 +128,6 @@ class ofApp : public ofBaseApp{
         void scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest);
         void mix(float m, ofxPingPongFbo &x, ofxPingPongFbo &y, ofxPingPongFbo &dest);
         void b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void f2s(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode = OF_BLENDMODE_ALPHA);
         void blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius);
         void sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest);
@@ -196,7 +195,7 @@ class ofApp : public ofBaseApp{
         ofShader shader_blur, shader_resample, shader_display,
             shader_multiscale, shader_post_derivative, shader_grad,
             shader_scale_add, shader_lp_filter, shader_warp, shader_edge_aware,
-            shader_multi_warp, shader_f2s;
+            shader_multi_warp;
 
         int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, num_scales,
             integrator, cycle_disp_mode;
