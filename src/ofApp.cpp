@@ -240,26 +240,26 @@ void ofxDynamicalTexture<T>::update(float dt, int mode){
 
 void ofApp::setup(){
     params.setName("params");
-	params.add(saturate.set("saturate",1));
+	params.add(saturate.set("saturate",0));
 	params.add(bias.set("bias",0));
-	params.add(gen.set("gen",.5,0,1));
+	params.add(gen.set("gen",.05,0,1));
 	params.add(compress.set("compress",0,0,1));
 	params.add(time_scale.set("time_scale",.5));
 	params.add(rot.set("rot",0));
 	params.add(lf_bleed.set("lf_bleed",0,0,1));
-	params.add(filter_steps.set("filter_steps",1));
+	params.add(filter_steps.set("filter_steps",0));
 	params.add(blur_post.set("blur_post",1));
 	params.add(blur_initial.set("blur_initial",1));
-    params.add(blur_scale.set("blur_scale",1));
+    params.add(blur_scale.set("blur_scale",4));
     params.add(lp_frames.set("lp_frames",1));
     params.add(lp_radius.set("lp_radius", 1));
-	params.add(bound_clip.set("bound_clip",1));
+	params.add(bound_clip.set("bound_clip",.1));
 	params.add(seed.set("seed",0));
-	params.add(disp_exponent.set("disp_exponent",0));
+	params.add(disp_exponent.set("disp_exponent",-1));
     params.add(warp_agent.set("warp_agent",0));
-    params.add(agent_drive.set("agent_drive",1));
-    params.add(drive.set("drive",1));
-	params.add(warp_color.set("warp_color",0));
+    params.add(agent_drive.set("agent_drive",.5));
+    params.add(drive.set("drive",0));
+	params.add(warp_color.set("warp_color",1));
     params.add(warp_grad.set("warp_grad",0));
 	params.add(zoom.set("zoom",1));
 	params.add(swirl.set("swirl",0));
@@ -352,7 +352,7 @@ void ofApp::setup(){
 
     discard_largest_scale = true;
     num_scales = 5;
-    scale_factor = 3;
+    scale_factor = 2;
 
     allocateFbos();
 
@@ -368,7 +368,7 @@ void ofApp::setup(){
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
-    ss.setDeviceID(0);
+    ss.setDeviceID(2);
     ss.setup(this, 2, 0, sample_rate, 256, 4);
 
     if(use_camera){
@@ -661,15 +661,17 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
     //sub(y, f, yprime); //yprime as scratch
 
     blur(src, y_pyramid[0], blur_initial);
-    //mov(y, y_pyramid[0]);
+   // mov(src, y_pyramid[0]);
 
     //compute pyramid + derivatives of y and accumulate to yprime
-    float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
     for(int i=0; i<y_pyramid.size()-1; i++){
-        float blur_amt = max(0., blur_scale*scale_factor - amt_blurred);
-        blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
+        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
+        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
+       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
         //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-        amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
         //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
         scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
