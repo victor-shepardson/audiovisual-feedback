@@ -154,7 +154,7 @@ void snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
 }
 void snake_variance_momentum(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
 	vec3 ref = sample(p, s);
-	//ref = (ref-dot(ref, vec3(1./3)))/(length(ref)+.001);
+	ref = (ref-dot(ref, vec3(1./3)))/(length(ref)+.001);
 	vec2 v;
 	for(int i=1; i<=n; i++){
 		vec2 a = ascend(p, -ref);
@@ -232,8 +232,7 @@ void main() {
 
 	int scsteps = int(abs(warp_color));
 	float scdt = scale_disp*warp_color/float(scsteps);
-	snake_color(y, p, scsteps, scdt);
-	//snake_color_mm(y, p, scsteps, scdt, .5);
+	snake_color_mm(y, p, scsteps, scdt, .2);
 	//snake_color_mean(y, p, scsteps, scdt);
 	//snake_color_rnn(y, p, scsteps, scdt, 1.);
 	//snake_color_rnn_vw(y, p, scsteps, scdt, _color_proj[0], _color_proj[1]);
@@ -243,7 +242,6 @@ void main() {
 	int svsteps = int(abs(warp_grad));
 	float svdt = scale_disp*warp_grad/float(svsteps);
 	snake_variance(y, p, svsteps, svdt);
-	//snake_variance_mm(y, p, svsteps, svdt, .2);
 	//snake_variance_momentum(y, p, svsteps, svdt, .2);
 	//snake_variance_mean(y, p, svsteps, svdt);
 	//snake_variance_rnn_mw(y, p, svsteps, svdt, _grad_proj);
