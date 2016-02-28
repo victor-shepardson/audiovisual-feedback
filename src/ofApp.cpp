@@ -399,6 +399,7 @@ void ofApp::loadShaders(){
     shader_warp.load(ofToDataPath("../../src/shader/warp"));
     shader_multi_warp.load(ofToDataPath("../../src/shader/multi_warp"));
     shader_edge_aware.load(ofToDataPath("../../src/shader/edge_aware_filter"));
+    shader_f2s.load(ofToDataPath("../../src/shader/f2s"));
 }
 
 //only happens once, in setup()
@@ -612,7 +613,16 @@ void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, of
     dest.endInPlace();
     shader_scale_add.end();
 }
-
+void ofApp::f2s(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    int w = dest.getWidth(), h = dest.getHeight();
+    shader_f2s.begin();
+    shader_f2s.setUniformTexture("src",src.getTextureReference(0),0);
+    shader_scale_add.setUniform2i("size", w, h);
+    dest.beginInPlace();
+    ofRect(0,0,w,h);
+    dest.endInPlace();
+    shader_f2s.end();
+}
 void ofApp::mix(float m, ofxPingPongFbo &x, ofxPingPongFbo &y, ofxPingPongFbo &dest){
     scale_add(1-m, x, m, y, dest);
 }
