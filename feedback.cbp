@@ -79,6 +79,7 @@
 			<Add directory="../../../addons/ofxOsc/libs/oscpack/src/ip/win32" />
 			<Add directory="../../../addons/ofxOsc/libs/oscpack/src/osc" />
 			<Add directory="../../../addons/ofxVideoWaveTerrain/src" />
+			<Add directory="../../../addons/ofxFastFboReader/src" />
 			<Add directory="../../../addons/ofxVideoRecorder/src" />
 		</Compiler>
 		<Linker>
@@ -127,6 +128,8 @@
 			<Add after='cmd /c if not exist &quot;$(PROJECT_DIR)bin/data&quot; mkdir &quot;$(PROJECT_DIR)bin/data&quot;' />
 			<Mode after="always" />
 		</ExtraCommands>
+		<Unit filename="../../../addons/ofxFastFboReader/src/ofxFastFboReader.cpp" />
+		<Unit filename="../../../addons/ofxFastFboReader/src/ofxFastFboReader.h" />
 		<Unit filename="../../../addons/ofxGui/src/ofxBaseGui.cpp">
 			<Option virtualFolder="addons/ofxGui/src" />
 		</Unit>
