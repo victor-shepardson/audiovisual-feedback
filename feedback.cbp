@@ -79,6 +79,7 @@
 			<Add directory="../../../addons/ofxOsc/libs/oscpack/src/ip/win32" />
 			<Add directory="../../../addons/ofxOsc/libs/oscpack/src/osc" />
 			<Add directory="../../../addons/ofxVideoWaveTerrain/src" />
+			<Add directory="../../../addons/ofxFastFboReader/src" />
 			<Add directory="../../../addons/ofxVideoRecorder/src" />
 			<Add directory="../../../addons/ofxFastFboReader/src" />
 		</Compiler>

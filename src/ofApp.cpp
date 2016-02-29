@@ -240,26 +240,26 @@ void ofxDynamicalTexture<T>::update(float dt, int mode){
 
 void ofApp::setup(){
     params.setName("params");
-	params.add(saturate.set("saturate",1));
+	params.add(saturate.set("saturate",0));
 	params.add(bias.set("bias",0));
-	params.add(gen.set("gen",.5,0,1));
+	params.add(gen.set("gen",.05,0,1));
 	params.add(compress.set("compress",0,0,1));
 	params.add(time_scale.set("time_scale",.5));
 	params.add(rot.set("rot",0));
 	params.add(lf_bleed.set("lf_bleed",0,0,1));
-	params.add(filter_steps.set("filter_steps",1));
+	params.add(filter_steps.set("filter_steps",0));
 	params.add(blur_post.set("blur_post",1));
 	params.add(blur_initial.set("blur_initial",1));
-    params.add(blur_scale.set("blur_scale",1));
+    params.add(blur_scale.set("blur_scale",4));
     params.add(lp_frames.set("lp_frames",1));
     params.add(lp_radius.set("lp_radius", 1));
-	params.add(bound_clip.set("bound_clip",1));
+	params.add(bound_clip.set("bound_clip",.1));
 	params.add(seed.set("seed",0));
-	params.add(disp_exponent.set("disp_exponent",0));
+	params.add(disp_exponent.set("disp_exponent",-1));
     params.add(warp_agent.set("warp_agent",0));
-    params.add(agent_drive.set("agent_drive",1));
-    params.add(drive.set("drive",1));
-	params.add(warp_color.set("warp_color",0));
+    params.add(agent_drive.set("agent_drive",.5));
+    params.add(drive.set("drive",0));
+	params.add(warp_color.set("warp_color",.5));
     params.add(warp_grad.set("warp_grad",0));
 	params.add(zoom.set("zoom",1));
 	params.add(swirl.set("swirl",0));
@@ -268,7 +268,7 @@ void ofApp::setup(){
     params.add(ydrift.set("ydrift",0));
     params.add(mirror_amt.set("mirror_amt",0,0,1));
     params.add(mirror_shape.set("mirror_shape",0,0,1));
-	params.add(agent_rate.set("agent_rate",30.));
+	params.add(agent_rate.set("agent_rate",0.));
 	params.add(momentum_time.set("momentum_time",.00003));
 	params.add(path_jitter.set("path_jitter", 0));
 	params.add(fade_time.set("fade_time", .5));
@@ -359,7 +359,7 @@ void ofApp::setup(){
 
     discard_largest_scale = true;
     num_scales = 5;
-    scale_factor = 3;
+    scale_factor = 2;
 
     allocateFbos();
 
@@ -375,7 +375,7 @@ void ofApp::setup(){
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
-    ss.setDeviceID(0);
+    ss.setDeviceID(2);
     ss.setup(this, 2, 0, sample_rate, 256, 4);
 
     if(use_camera){
@@ -668,15 +668,17 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
     //sub(y, f, yprime); //yprime as scratch
 
     blur(src, y_pyramid[0], blur_initial);
-    //mov(y, y_pyramid[0]);
+   // mov(src, y_pyramid[0]);
 
     //compute pyramid + derivatives of y and accumulate to yprime
-    float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
     for(int i=0; i<y_pyramid.size()-1; i++){
-        float blur_amt = max(0., blur_scale*scale_factor - amt_blurred);
-        blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
+        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
+        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
+       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
         //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-        amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
         //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
         scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
         mov(yprime_pyramid[i], y_pyramid[i+1]);
@@ -687,8 +689,12 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
         float scale = pow(scale_factor,i);
         gradients(y_pyramid[i]);
         int mod_idx = i;
-        if(discard_largest_scale) mod_idx +=1;
-        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale);
+        float mod = 0.;
+        if(discard_largest_scale){
+            mod_idx +=1;
+            mod = 1.;
+        }
+        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
     }
     //for(int i=0; i<scales_to_process; i++){
     //    if(!i){
@@ -725,7 +731,7 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
     dest.end();
 }
 
-void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale){
+void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
     int w = y.getWidth(), h = y.getHeight();
     shader_multiscale.begin();
     shader_multiscale.setUniform1f("t",t);
@@ -733,6 +739,7 @@ void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofx
     shader_multiscale.setUniformTexture("xgrad", y.getTextureReference(1),1);
     shader_multiscale.setUniformTexture("ygrad", y.getTextureReference(2),2);
     shader_multiscale.setUniformTexture("modulation", m.getTextureReference(0), 3);
+    shader_multiscale.setUniform1f("modulate", mod);
     shader_multiscale.setUniform2i("size", w, h);
     shader_multiscale.setUniform1f("scale", scale);
     shader_multiscale.setUniform1f("disp_exponent", disp_exponent);
@@ -835,7 +842,7 @@ void ofApp::draw(){
     //draw agent path
     int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
     float alpha = 1 - pow(2, -1./(fade_time*cur_frame_rate));
-    fill(agent_fbo, ofFloatColor(0,0,0,alpha));
+    fill(agent_fbo, ofFloatColor(.0,.0,.0,alpha));
     agent_fbo.beginInPlace();
     vwt->draw(0, 0, aw, ah);
     agent_fbo.endInPlace();

@@ -8,6 +8,8 @@ uniform sampler2D modulation;
 uniform float t;
 uniform ivec2 size;
 
+uniform float modulate;
+
 //uniform	float time_scale;
 //uniform	float rot;
 //uniform	float bound_gauss;
@@ -31,24 +33,24 @@ out vec4 outputColor;
 
 vec2 invsize = 1./vec2(size);
 
-float sigmoid(float x){
+float sigmoid(in float x){
 	return x/(1.+abs(x));
 }
-vec3 sigmoid(vec3 x){
+vec3 sigmoid(in vec3 x){
 	return x/(1.+abs(x));
 }
 
-vec3 msigmoid(vec3 x){
+vec3 msigmoid(in vec3 x){
 	return x/(1.+length(x));
 }
 //convert between bipolar [-1, 1] and unipolar [0, 1]
-vec3 u2b(vec3 u){
+vec3 u2b(in vec3 u){
 	return 2.*u-1.;
 }
-vec3 b2u(vec3 b){
+vec3 b2u(in vec3 b){
 	return .5*b+.5;
 }
-vec2 color2dir(vec3 c){
+vec2 color2dir(in vec3 c){
 	vec3 u = b2u(c);
 	vec3 ycm = min(u.rgr, u.gbb);
 	vec3 rgb = u - max(ycm.rrg, ycm.bgb);
@@ -62,21 +64,21 @@ vec2 color2dir(vec3 c){
 	//return vec2(dot(c,px),dot(c,py));
 }
 
-vec2 pol2car(vec2 pol){
+vec2 pol2car(in vec2 pol){
 	return pol.x*vec2(cos(pol.y), sin(pol.y));
 }
-vec2 car2pol(vec2 car){
+vec2 car2pol(in vec2 car){
 	return vec2(length(car), atan(car.y, car.x));
 }
 
 //use a sample function to handle different texture types+topologies
-vec3 sample(in vec2 p, sampler2D s){
+vec3 sample(in vec2 p, in sampler2D s){
 	return texture(s, p*invsize).rgb;
 }
 
 //dynamical process in image space, where position influences color
 //(by sampling the image) and color influences position
-vec2 ascend(in vec2 p, const vec3 chan){
+vec2 ascend(in vec2 p, const in vec3 chan){
 	vec2 dp_dt;
 	mat2x3 grad;
 	//maybe something clever to be done with caching these lookups
@@ -87,20 +89,22 @@ vec2 ascend(in vec2 p, const vec3 chan){
 	return dp_dt;///(length(dp_dt)+.001);//unit_square_to_circle(dp_dt);
 }
 
-void snake_color(sampler2D s, inout vec2 p, const int n, const float dt){
+void snake_color(in sampler2D s, inout vec2 p, const in int n, const in float dt){
 	for(int i=0; i<n; i++){
-		p+= dt*color2dir(sample(p,s));
+		vec3 c = sample(p,s);
+		c = sample(p,s); //magically prevents crash
+		p+= dt*color2dir(c);
 	}
 }
 
-void snake_color_mean(sampler2D s, inout vec2 p, const int n, const float dt){
+void snake_color_mean(in sampler2D s, inout vec2 p, const in int n, const in float dt){
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
 		mean = mix(mean, sample(p,s), 1./i);
 		p+= dt*color2dir(mean);
 	}
 }
-void snake_color_momentum(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
+void snake_color_momentum(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in float m){
 	vec2 v;
 	for(int i=1; i<=n; i++){
 		vec2 a = color2dir(sample(p,s));
@@ -110,7 +114,7 @@ void snake_color_momentum(sampler2D s, inout vec2 p, const int n, const float dt
 		p += dt*v;
 	}
 }
-void snake_color_mm(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
+void snake_color_mm(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in float m){
 	vec2 v;
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
@@ -122,21 +126,21 @@ void snake_color_mm(sampler2D s, inout vec2 p, const int n, const float dt, cons
 		p += dt*v;
 	}
 }
-void snake_color_rnn(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
+void snake_color_rnn(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in float m){
 	vec3 h = vec3(0.);
 	for(int i=1; i<=n; i++){
 		h = msigmoid(h*m+sample(p,s));
 		p+= dt*color2dir(h);
 	}
 }
-void snake_color_rnn_vw(sampler2D s, inout vec2 p, const int n, const float dt, const vec3 iw, const vec3 rw){
+void snake_color_rnn_vw(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in vec3 iw, const in vec3 rw){
 	vec3 h = vec3(0.);
 	for(int i=1; i<=n; i++){
 		h = msigmoid(h*rw+sample(p,s)*iw);
 		p+= dt*color2dir(h);
 	}
 }
-void snake_color_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, const mat3 w){
+void snake_color_rnn_mw(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in mat3 w){
 	vec3 h = vec3(0.);
 	for(int i=1; i<=n; i++){
 		h = msigmoid(w*h+sample(p,y));
@@ -144,7 +148,7 @@ void snake_color_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, 
 	}
 }
 
-void snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
+void snake_variance(in sampler2D s, inout vec2 p, const in int n, const in float dt){
 	vec3 ref = sample(p, s);
 	//ref -= dot(ref, vec3(1./3));
 	//ref /= (length(ref)+.001);
@@ -152,9 +156,9 @@ void snake_variance(sampler2D s, inout vec2 p, const int n, const float dt){
 		p+= dt*ascend(p, -ref);
 	}
 }
-void snake_variance_momentum(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
+void snake_variance_momentum(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in float m){
 	vec3 ref = sample(p, s);
-	ref = (ref-dot(ref, vec3(1./3)))/(length(ref)+.001);
+	//ref = (ref-dot(ref, vec3(1./3)))/(length(ref)+.001);
 	vec2 v;
 	for(int i=1; i<=n; i++){
 		vec2 a = ascend(p, -ref);
@@ -164,7 +168,7 @@ void snake_variance_momentum(sampler2D s, inout vec2 p, const int n, const float
 		p+= dt*v;
 	}
 }
-void snake_variance_mm(sampler2D s, inout vec2 p, const int n, const float dt, const float m){
+void snake_variance_mm(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in float m){
 	vec2 v ;
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
@@ -178,7 +182,7 @@ void snake_variance_mm(sampler2D s, inout vec2 p, const int n, const float dt, c
 		p+= dt*v;
 	}
 }
-void snake_variance_mean(sampler2D s, inout vec2 p, const int n, const float dt){
+void snake_variance_mean(in sampler2D s, inout vec2 p, const in int n, const in float dt){
 	vec3 mean = vec3(0.);
 	for(int i=1; i<=n; i++){
 		mean = mix(mean, sample(p,s), 1./i);
@@ -187,7 +191,7 @@ void snake_variance_mean(sampler2D s, inout vec2 p, const int n, const float dt)
 		p+= dt*ascend(p, chan);
 	}
 }
-void snake_variance_rnn_mw(sampler2D s, inout vec2 p, const int n, const float dt, const mat3 w){
+void snake_variance_rnn_mw(in sampler2D s, inout vec2 p, const in int n, const in float dt, const in mat3 w){
 	vec3 h = vec3(0.);
 	for(int i=1; i<=n; i++){
 		h = msigmoid(w*h+sample(p,y));
@@ -195,7 +199,7 @@ void snake_variance_rnn_mw(sampler2D s, inout vec2 p, const int n, const float d
 	}
 }
 
-void star_variance(sampler2D s, inout vec2 p, const int spokes, const int steps, const float dt){
+void star_variance(in sampler2D s, inout vec2 p, const in int spokes, const in int steps, const in float dt){
 	vec3 mean = vec3(0.);
 	vec2 cur_p = p;
 	for(int i=1; i<=spokes; i++){
@@ -218,34 +222,38 @@ void main() {
 
 	vec2 p = gl_FragCoord.xy;
 	vec2 p_old = p;
-	vec3 val_y = sample(p,y);
-	vec3 val_m = sample(p, modulation);
-	//vec3 val_agents = sigmoid(sample(p, agents));
-	
+	vec3 val_m = vec3(0.);	
 	vec3 val_new;
 
-	p += val_m.xy/scale;
-
-	//float ss = scale;//sqrt(scale);
+	if(modulate>0.){
+		vec3 val_m = modulate*sample(p, modulation)/scale;
+		p += val_m.xy;
+	}
 
 	float scale_disp = pow(scale, disp_exponent);//1./sqrt(scale);
 
-	int scsteps = int(abs(warp_color));
-	float scdt = scale_disp*warp_color/float(scsteps);
-	snake_color_mm(y, p, scsteps, scdt, .2);
-	//snake_color_mean(y, p, scsteps, scdt);
-	//snake_color_rnn(y, p, scsteps, scdt, 1.);
-	//snake_color_rnn_vw(y, p, scsteps, scdt, _color_proj[0], _color_proj[1]);
-	//snake_color_rnn_mw(y, p, scsteps, scdt, _color_proj);
-	//p += warp_color*scale_disp*color2dir(sample(p,y));
+	if(warp_color != 0.){
+		int scsteps = max(1,int(abs(warp_color)));
+		float scdt = scale_disp*warp_color/float(scsteps);
+		snake_color(y, p, scsteps, scdt);
+		//snake_color_mm(y, p, scsteps, scdt, .5);
+		//snake_color_mean(y, p, scsteps, scdt);
+		//snake_color_rnn(y, p, scsteps, scdt, 1.);
+		//snake_color_rnn_vw(y, p, scsteps, scdt, _color_proj[0], _color_proj[1]);
+		//snake_color_rnn_mw(y, p, scsteps, scdt, _color_proj);
+		//p += warp_color*scale_disp*color2dir(sample(p,y));
+	}
 
-	int svsteps = int(abs(warp_grad));
-	float svdt = scale_disp*warp_grad/float(svsteps);
-	snake_variance(y, p, svsteps, svdt);
-	//snake_variance_momentum(y, p, svsteps, svdt, .2);
-	//snake_variance_mean(y, p, svsteps, svdt);
-	//snake_variance_rnn_mw(y, p, svsteps, svdt, _grad_proj);
-	//p += warp_grad*scale_disp*ascend(p, -sample(p,y));
+	if(warp_grad != 0.){
+		int svsteps = max(1,int(abs(warp_grad)));
+		float svdt = scale_disp*warp_grad/float(svsteps);
+		snake_variance(y, p, svsteps, svdt);
+		//snake_variance_mm(y, p, svsteps, svdt, .2);
+		//snake_variance_momentum(y, p, svsteps, svdt, .2);
+		//snake_variance_mean(y, p, svsteps, svdt);
+		//snake_variance_rnn_mw(y, p, svsteps, svdt, _grad_proj);
+		//p += warp_grad*scale_disp*ascend(p, -sample(p,y));
+	}
 
 	//val_new = sample(p,y);
 
