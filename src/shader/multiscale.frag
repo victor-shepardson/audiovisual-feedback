@@ -222,9 +222,7 @@ void main() {
 
 	vec2 p = gl_FragCoord.xy;
 	vec2 p_old = p;
-	vec3 val_m = vec3(0.);
-	//vec3 val_agents = sigmoid(sample(p, agents));
-	
+	vec3 val_m = vec3(0.);	
 	vec3 val_new;
 
 	if(modulate>0.){
@@ -232,14 +230,11 @@ void main() {
 		p += val_m.xy;
 	}
 
-	//float ss = scale;//sqrt(scale);
-
 	float scale_disp = pow(scale, disp_exponent);//1./sqrt(scale);
 
 	if(warp_color != 0.){
 		int scsteps = max(1,int(abs(warp_color)));
 		float scdt = scale_disp*warp_color/float(scsteps);
-		//float scdt = scale_disp*warp_color/float(1);
 		snake_color(y, p, scsteps, scdt);
 		//snake_color_mm(y, p, scsteps, scdt, .5);
 		//snake_color_mean(y, p, scsteps, scdt);

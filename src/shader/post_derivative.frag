@@ -181,8 +181,9 @@ void main() {
 
 	d = mix(d, d/(length(d)+.001), compress);
 
-	//d += u2b(sample(p, agents));
-	d += agent_drive*sin(2.*PI*sigmoid(sample(p, agents)));
+	d += vec3(0.);
+	d += agent_drive*sigmoid(u2b(sample(p, agents)));
+	//d += agent_drive*sin(8./3.*PI*sigmoid(sample(p, agents)));
 
 	//some kind of color rotation
 	d = mix(d, .5*sign(rot)*(d.gbr - d.brg), abs(rot));

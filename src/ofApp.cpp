@@ -268,7 +268,7 @@ void ofApp::setup(){
     params.add(ydrift.set("ydrift",0));
     params.add(mirror_amt.set("mirror_amt",0,0,1));
     params.add(mirror_shape.set("mirror_shape",0,0,1));
-	params.add(agent_rate.set("agent_rate",30.));
+	params.add(agent_rate.set("agent_rate",0.));
 	params.add(momentum_time.set("momentum_time",.00003));
 	params.add(path_jitter.set("path_jitter", 0));
 	params.add(fade_time.set("fade_time", .5));
@@ -368,7 +368,7 @@ void ofApp::setup(){
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
-    ss.setDeviceID(0);
+    ss.setDeviceID(2);
     ss.setup(this, 2, 0, sample_rate, 256, 4);
 
     if(use_camera){
@@ -835,7 +835,7 @@ void ofApp::draw(){
     //draw agent path
     int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
     float alpha = 1 - pow(2, -1./(fade_time*cur_frame_rate));
-    fill(agent_fbo, ofFloatColor(0,0,0,alpha));
+    fill(agent_fbo, ofFloatColor(.0,.0,.0,alpha));
     agent_fbo.beginInPlace();
     vwt->draw(0, 0, aw, ah);
     agent_fbo.endInPlace();
