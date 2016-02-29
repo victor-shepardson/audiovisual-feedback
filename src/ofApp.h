@@ -120,7 +120,7 @@ class ofApp : public ofBaseApp{
         void resampleToWindow(ofxPingPongFbo &src);
         void resample(ofxPingPongFbo &src, ofxPingPongFbo &dest);
 
-        void processingAtScale(float t, ofxPingPongFbo &src, ofxPingPongFbo &m, ofxPingPongFbo &dest, float scale);
+        void processingAtScale(float t, ofxPingPongFbo &src, ofxPingPongFbo &m, ofxPingPongFbo &dest, float scale, float mod);
         void multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime);

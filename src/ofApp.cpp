@@ -259,7 +259,7 @@ void ofApp::setup(){
     params.add(warp_agent.set("warp_agent",0));
     params.add(agent_drive.set("agent_drive",.5));
     params.add(drive.set("drive",0));
-	params.add(warp_color.set("warp_color",1));
+	params.add(warp_color.set("warp_color",.5));
     params.add(warp_grad.set("warp_grad",0));
 	params.add(zoom.set("zoom",1));
 	params.add(swirl.set("swirl",0));
@@ -368,7 +368,7 @@ void ofApp::setup(){
     vwt = new ofxVideoWaveTerrain(frames_to_keep, sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
-    ss.setDeviceID(2);
+    ss.setDeviceID(0);
     ss.setup(this, 2, 0, sample_rate, 256, 4);
 
     if(use_camera){
@@ -682,8 +682,12 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
         float scale = pow(scale_factor,i);
         gradients(y_pyramid[i]);
         int mod_idx = i;
-        if(discard_largest_scale) mod_idx +=1;
-        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale);
+        float mod = 0.;
+        if(discard_largest_scale){
+            mod_idx +=1;
+            mod = 1.;
+        }
+        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
     }
     //for(int i=0; i<scales_to_process; i++){
     //    if(!i){
@@ -720,7 +724,7 @@ void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &d
     dest.end();
 }
 
-void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale){
+void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
     int w = y.getWidth(), h = y.getHeight();
     shader_multiscale.begin();
     shader_multiscale.setUniform1f("t",t);
@@ -728,6 +732,7 @@ void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofx
     shader_multiscale.setUniformTexture("xgrad", y.getTextureReference(1),1);
     shader_multiscale.setUniformTexture("ygrad", y.getTextureReference(2),2);
     shader_multiscale.setUniformTexture("modulation", m.getTextureReference(0), 3);
+    shader_multiscale.setUniform1f("modulate", mod);
     shader_multiscale.setUniform2i("size", w, h);
     shader_multiscale.setUniform1f("scale", scale);
     shader_multiscale.setUniform1f("disp_exponent", disp_exponent);
