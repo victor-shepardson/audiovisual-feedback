@@ -196,7 +196,7 @@ void main() {
 	//d = max(d, -bound_clip-val_y);
 	//d = min(d, bound_clip-val_y);
 	if(dot(d, val_y) > 0 && length(val_y) > bound_clip)
-		d /= length(val_y)-bound_clip+1.;
+		d /= 2.*(length(val_y)-bound_clip)+1.;
 	
     outputColor = vec4(d, 1.);
 }

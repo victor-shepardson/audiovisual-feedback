@@ -207,6 +207,16 @@ class ofApp : public ofBaseApp{
         bool drawing, //false in setup, true once draw loop begins
             realtime, use_camera, fullscreen, mute, discard_largest_scale, recording;
 
+        enum AVFBDisplayMode{
+            AVFBDM_Color,
+            AVFBDM_Monochrome,
+            AVFBDM_Agents,
+            AVFBDM_Pyramid,
+            AVFBDM_Displacement,
+            AVFBDM_Filter
+        };
+        vector<AVFBDisplayMode> display_sequence;
+
         ofVideoGrabber camera;
         ofxVideoRecorder vr;
 

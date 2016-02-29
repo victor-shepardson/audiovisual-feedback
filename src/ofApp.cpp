@@ -350,6 +350,13 @@ void ofApp::setup(){
     disp_scale = 0;
     disp_buf = 0;
 
+    display_sequence.push_back(AVFBDM_Color);
+    display_sequence.push_back(AVFBDM_Monochrome);
+    display_sequence.push_back(AVFBDM_Agents);
+    display_sequence.push_back(AVFBDM_Displacement);
+    display_sequence.push_back(AVFBDM_Filter);
+
+
     discard_largest_scale = true;
     num_scales = 5;
     scale_factor = 3;
@@ -809,7 +816,7 @@ void ofApp::update(){
     if(use_camera) camera.update();
     ofSetFrameRate(frame_rate);
     ofSetWindowTitle(ofToString(ofGetFrameRate()));
-    if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%6;
+    if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%display_sequence.size();
 }
 
 void ofApp::draw(){
@@ -851,12 +858,12 @@ void ofApp::draw(){
 
     //branch on disp_mode and draw to screen
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
-    switch(disp_mode){
-        case 0:
+    switch(display_sequence[disp_mode]){
+        case AVFBDM_Color:
             mov(y_fbo, display_fbo);
             b2u(display_fbo, display_fbo);
             break;
-        case 1:
+        case AVFBDM_Monochrome:
             shader_display.begin();
             shader_display.setUniform2i("size", display_fbo.getWidth(), display_fbo.getHeight());
             shader_display.setUniformTexture("state", y_fbo.getTextureReference(),0);
@@ -865,24 +872,24 @@ void ofApp::draw(){
             display_fbo.end();
             shader_display.end();
             break;
-        case 2:
+        case AVFBDM_Agents:
             resample(agent_fbo, display_fbo);
             break;
-        case 3:
+        case AVFBDM_Pyramid:
             if(!disp_scale)
                 mov(y_pyramid[disp_scale], display_fbo);
             else
                 resample(y_pyramid[disp_scale], display_fbo);
             b2u(display_fbo, display_fbo);
             break;
-        case 4:
+        case AVFBDM_Displacement:
             if(!disp_scale)
                 mov(yprime_pyramid[disp_scale], display_fbo);
             else
                 resample(yprime_pyramid[disp_scale], display_fbo);
             b2u(display_fbo, display_fbo);
             break;
-        case 5:
+        case AVFBDM_Filter:
             mov(lp->getState(), display_fbo);
             b2u(display_fbo, display_fbo);
             break;
@@ -1156,7 +1163,7 @@ void ofApp::keyPressed(int key){
         cout<<"cycle display mode: "<<cycle_disp_mode<<endl;
     }
     if(key=='d'){
-        disp_mode = ofWrap(disp_mode+1, 0, 6);
+        disp_mode = (disp_mode+1)%display_sequence.size();
         cout<<"display mode: "<<disp_mode<<endl;
     }
     if(key=='f'){
