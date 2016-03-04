@@ -7,7 +7,8 @@
 #include "ofxVideoRecorder.h"
 #include "ofxFastFboReader.h"
 
-//
+//should replace aux with a collection of buffers and save()/restore() with push()/pop()
+//then lazily allocate new buffers to aux
 class ofxPingPongFbo{
 public:
     ofxPingPongFbo();
@@ -52,14 +53,15 @@ public:
     //then call update with mode = 0 for euler, 1 for rk4
     void tick(float t, float dt, int i);
     void tock(float t, float dt, int i);
-    void update(float dt, int mode);
+    void update(float dt);
     ofxPingPongFbo &getState();
 private:
-    ofxPingPongFbo y, ytemp;
+    int ticks, tocks;
+    ofxPingPongFbo y, ytemp; //y stores the state at each time step; ytemp stores updated states for intermediate computations
     vector<ofxPingPongFbo> k;
     T *app;
     void (T::*derivative)(float, ofxPingPongFbo&);
-    void rkUpdate(float dt, int i, ofxPingPongFbo &dest);
+    void rkUpdate(float dt, int i);
     void rkUpdate(float dt);
     void rkStep(float t, float dt, int i);
 };
@@ -97,6 +99,8 @@ class ofApp : public ofBaseApp{
         void endVideoRecord();
 
         void loadShaders();
+        void setupParameters();
+        void setupConstants();
 
         void allocateFbos();
         void reallocateFbos();
@@ -136,9 +140,30 @@ class ofApp : public ofBaseApp{
         void blend(ofxPingPongFbo &src, ofxPingPongFbo &dest, ofBlendMode mode);
         void gradients(ofxPingPongFbo &src);
 
-        ofParameterGroup params;
+        //wrap shader.setUniformxx
+        void setShaderParam(ofShader&, const string&);
+        void setShaderParam(ofShader&, const string&, float);
+        void setShaderParam(ofShader&, const string&, float, float);
+        void setShaderParam(ofShader&, const string&, float, float, float);
+        void setShaderParam(ofShader&, const string&, float, float, float, float);
+        void setShaderParam(ofShader&, const string&, ofVec2f&);
+        void setShaderParam(ofShader&, const string&, ofVec3f&);
+        void setShaderParam(ofShader&, const string&, ofVec4f&);
+        void setShaderParam(ofShader&, const string&, int);
+        void setShaderParam(ofShader&, const string&, int, int);
+        void setShaderParam(ofShader&, const string&, int, int, int);
+        void setShaderParam(ofShader&, const string&, int, int, int, int);
+        void setShaderParam(ofShader&, const string&, ofMatrix4x4);
+        void setShaderParam(ofShader&, const string&, ofTexture&, int loc=0);
 
-        ofParameter<float> filter_steps; //truncated to int: number of times to apply edge-aware filter
+        ofParameterGroup params;
+        ofxOscParameterSync sync;
+        int local_port, remote_port;
+        string remote_host;
+        ofxPanel gui;
+
+    //now naming all these from params.txt and using params.getFloat("name"); leaving this here for the comments for now
+/*        ofParameter<float> filter_steps; //truncated to int: number of times to apply edge-aware filter
         ofParameter<float> blur_post; //radius of gaussian blur applied after warping
         ofParameter<float> lf_bleed; //amount of low frequency information left behind in high-passed bins
         ofParameter<float> blur_initial; //radius of a blur applied before frequency decomposition, in pixels
@@ -175,14 +200,10 @@ class ofApp : public ofBaseApp{
         ofParameter<float> path_blur; //radius of agent buffer blur, in pixels
 
         ofParameter<float> test_param; //general purpose parameter for convenience
-
+*/
         ofParameter<int> seed; //seed for filling matrices below
 
         ofMatrix4x4 grad_proj, color_proj;
-
-        ofxOscParameterSync sync;
-
-        ofxPanel gui;
 
         ofFbo::Settings fbo_params;
 
@@ -190,19 +211,23 @@ class ofApp : public ofBaseApp{
 
         vector<ofxPingPongFbo> y_pyramid, yprime_pyramid;
         ofxPingPongFbo  agent_fbo, display_fbo, readback_fbo, render_fbo;
-        float frame;
+        double frame;
 
+        //could replace with map<string, ofShader> and get keys from file names in src/shader/
+        //so any name.vert, name.frag pair is accessible by shaders.get("name")
         ofShader shader_blur, shader_resample, shader_display,
             shader_multiscale, shader_post_derivative, shader_grad,
             shader_scale_add, shader_lp_filter, shader_warp, shader_edge_aware,
-            shader_multi_warp;
+            shader_multi_warp, shader_torus_shift;
 
-        int disp_buf, disp_mode, disp_scale, channels, audio_file_size, oversample_waveform, num_scales,
+        int disp_buf, disp_mode, disp_scale, audio_file_size, oversample_waveform, num_scales,
             integrator, cycle_disp_mode;
 
         int window_width, window_height, render_width, render_height, realtime_width, realtime_height, readback_width, readback_height;
 
-        double sample_rate, frame_rate, audio_delay, scale_factor;
+        double frame_rate, scale_factor;
+
+        ofVec2f draw_offset;
 
         bool drawing, //false in setup, true once draw loop begins
             realtime, use_camera, fullscreen, mute, discard_largest_scale, recording;
@@ -226,6 +251,8 @@ class ofApp : public ofBaseApp{
 
         ofDirectory cur_save_dir;
 
+        int audio_device, audio_channels, audio_buffer_size, audio_sample_rate;
+        double audio_delay;
         ofSoundStream ss;
 };
 

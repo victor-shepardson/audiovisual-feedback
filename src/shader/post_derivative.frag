@@ -25,11 +25,14 @@ uniform float mirror_amt;
 uniform float zoom;
 uniform float swirl;
 uniform float suck;
-uniform vec2 drift;
+uniform float xdrift;
+uniform float ydrift;
 uniform	float bound_clip;
 
 //uniform mat4 color_proj;
 //uniform mat4 grad_proj;
+
+vec2 drift = vec2(xdrift, ydrift);
 
 out vec4 outputColor;
 

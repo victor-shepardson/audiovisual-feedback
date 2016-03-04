@@ -41,6 +41,7 @@
 			</Target>
 		</Build>
 		<Compiler>
+			<Add option="-std=c++11" />
 			<Add option="-Wno-multichar" />
 			<Add directory="../../../libs/glu/include" />
 			<Add directory="../../../libs/freetype/include" />
@@ -81,7 +82,6 @@
 			<Add directory="../../../addons/ofxVideoWaveTerrain/src" />
 			<Add directory="../../../addons/ofxFastFboReader/src" />
 			<Add directory="../../../addons/ofxVideoRecorder/src" />
-			<Add directory="../../../addons/ofxFastFboReader/src" />
 		</Compiler>
 		<Linker>
 			<Add library="..\..\..\libs\FreeImage\lib\win_cb\FreeImage.lib" />
