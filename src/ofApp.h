@@ -140,21 +140,27 @@ class ofApp : public ofBaseApp{
         void blend(ofxPingPongFbo &src, ofxPingPongFbo &dest, ofBlendMode mode);
         void gradients(ofxPingPongFbo &src);
 
+        void beginShader(string);
+        void endShader();
+
+        map<string, ofShader> shaders;
+        ofShader *cur_shader;
+
         //wrap shader.setUniformxx
-        void setShaderParam(ofShader&, const string&);
-        void setShaderParam(ofShader&, const string&, float);
-        void setShaderParam(ofShader&, const string&, float, float);
-        void setShaderParam(ofShader&, const string&, float, float, float);
-        void setShaderParam(ofShader&, const string&, float, float, float, float);
-        void setShaderParam(ofShader&, const string&, ofVec2f&);
-        void setShaderParam(ofShader&, const string&, ofVec3f&);
-        void setShaderParam(ofShader&, const string&, ofVec4f&);
-        void setShaderParam(ofShader&, const string&, int);
-        void setShaderParam(ofShader&, const string&, int, int);
-        void setShaderParam(ofShader&, const string&, int, int, int);
-        void setShaderParam(ofShader&, const string&, int, int, int, int);
-        void setShaderParam(ofShader&, const string&, ofMatrix4x4);
-        void setShaderParam(ofShader&, const string&, ofTexture&, int loc=0);
+        void setShaderParam(const string&);
+        void setShaderParam(const string&, float);
+        void setShaderParam(const string&, float, float);
+        void setShaderParam(const string&, float, float, float);
+        void setShaderParam(const string&, float, float, float, float);
+        void setShaderParam(const string&, ofVec2f&);
+        void setShaderParam(const string&, ofVec3f&);
+        void setShaderParam(const string&, ofVec4f&);
+        void setShaderParam(const string&, int);
+        void setShaderParam(const string&, int, int);
+        void setShaderParam(const string&, int, int, int);
+        void setShaderParam(const string&, int, int, int, int);
+        void setShaderParam(const string&, ofMatrix4x4);
+        void setShaderParam(const string&, ofTexture&, int loc=0);
 
         ofParameterGroup params;
         ofxOscParameterSync sync;
@@ -212,13 +218,6 @@ class ofApp : public ofBaseApp{
         vector<ofxPingPongFbo> y_pyramid, yprime_pyramid;
         ofxPingPongFbo  agent_fbo, display_fbo, readback_fbo, render_fbo;
         double frame;
-
-        //could replace with map<string, ofShader> and get keys from file names in src/shader/
-        //so any name.vert, name.frag pair is accessible by shaders.get("name")
-        ofShader shader_blur, shader_resample, shader_display,
-            shader_multiscale, shader_post_derivative, shader_grad,
-            shader_scale_add, shader_lp_filter, shader_warp, shader_edge_aware,
-            shader_multi_warp, shader_torus_shift;
 
         int disp_buf, disp_mode, disp_scale, audio_file_size, oversample_waveform, num_scales,
             integrator, cycle_disp_mode;
