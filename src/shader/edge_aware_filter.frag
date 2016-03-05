@@ -21,13 +21,40 @@ void main() {
 
 	vec3 val = sample(p);
 
-	vec3 samps[4];
-	samps[0] = sample(p+vec2(0.,1.));
-	samps[1] = sample(p+vec2(0.,-1.));
-	samps[2] = sample(p+vec2(-1.,0.));
-	samps[3] = sample(p+vec2(1.,0.));
+	const int kernel_size = 7;
+	const int nsamps = kernel_size*kernel_size;
+	vec2 coords[nsamps];
 
-	float epsilon = .001;
+	for(int i=0; i<kernel_size; i++)
+		for(int j=0; j<kernel_size; j++)
+			coords[i*kernel_size+j] = vec2(i,j)-vec2(kernel_size/2);
+
+	float sigma_c = .1;
+	float sigma_p = 1.;
+
+	float s_c = .5/(sigma_c*sigma_c);
+	float s_p = .5/(sigma_p*sigma_p);
+
+	float z = 0.;
+	vec3 color = vec3(0.);
+
+	for(int i=0; i<nsamps; i++){
+		vec3 c = sample(p+coords[i]);
+		vec3 d_c = c-val;
+		vec2 d_p = coords[i];
+		float w = exp(-s_c*dot(d_c, d_c) - s_p*dot(d_p,d_p));
+		color += c*w;
+		z += w;
+	}
+
+	if(z>0.)
+		color/=z;
+
+	outputColor = vec4(color, 1.);
+
+
+
+/*	float epsilon = .001;
 	float w = 0.;
 	float w_floor;
 	vec3 c = vec3(0.);
@@ -43,9 +70,9 @@ void main() {
 		w+=tw;
 		c+=tw*samps[i];
 	}
-
+*
 	c = .5*(c/w+val);
-
+*/
 	/*vec3 gradx = sample(p+vec2(1.,0.)) - sample(p+vec2(-1.,0.));
 	vec3 grady = sample(p+vec2(0.,1.)) - sample(p+vec2(0.,-1.));
 
@@ -57,5 +84,5 @@ void main() {
 
 	vec3 c = .5*mix(sample(p+g)+sample(p-g), sample(p+perp)+sample(p-perp), dir);
 */
-    outputColor = vec4(c, 1.);
+    //outputColor = vec4(c, 1.);
 }
