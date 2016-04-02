@@ -1,4 +1,4 @@
-0, disp_exponent -1 -2 1;
+0, sigma_color 1 0 1;
 1, warp_color 1 0 64;
 2, warp_grad 1 0 64;
 3, warp_agent 0 0 64;
@@ -29,7 +29,7 @@
 28, lp_radius 1 0 64;
 29, compress 0 0 1;
 30, blur_post 1 0 64;
-31, filter_steps 0 0 64;
+31, sigma_position .5 0 32;
 32, comb_freq 100 0 20000;
 33, xshift 0 -1 1;
 34, yshift 0 -1 1;

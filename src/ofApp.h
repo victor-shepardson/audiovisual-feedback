@@ -139,6 +139,11 @@ class ofApp : public ofBaseApp{
         void mov(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void blend(ofxPingPongFbo &src, ofxPingPongFbo &dest, ofBlendMode mode);
         void gradients(ofxPingPongFbo &src);
+        void magnitudes(ofxPingPongFbo &src, ofxPingPongFbo &dest);
+        void displacement(ofxPingPongFbo &src, ofxPingPongFbo &dest);
+        void multilateral_filter(ofxPingPongFbo &src, ofxPingPongFbo &aux, ofxPingPongFbo &dest);
+
+
 
         void beginShader(string);
         void endShader();

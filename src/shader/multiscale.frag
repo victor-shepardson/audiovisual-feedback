@@ -50,6 +50,14 @@ vec3 u2b(in vec3 u){
 vec3 b2u(in vec3 b){
 	return .5*b+.5;
 }
+vec3 rgb2yuv(in vec3 c){
+	vec3 u = b2u(c);
+	vec3 yuv;
+	yuv[0] = dot(u, vec3(.299, .587, .114));
+	yuv[1] = .492*(u.b - yuv[0]);
+	yuv[2] = .877*(u.r - yuv[0]);
+	return yuv;
+}
 vec2 color2dir(in vec3 c){
 	vec3 u = b2u(c);
 	vec3 ycm = min(u.rgr, u.gbb);
@@ -61,7 +69,7 @@ vec2 color2dir(in vec3 c){
 	return h/(length(h)+.001) * sat;
 	//vec3 px = normalize(vec3(1.,-.5,-.5));
 	//vec3 py = normalize(vec3(0.,1.,-1.));
-	//return vec2(dot(c,px),dot(c,py));
+	//return vec2(dot(c,px),dot(c,py));	
 }
 
 vec2 pol2car(in vec2 pol){
@@ -94,6 +102,7 @@ void snake_color(in sampler2D s, inout vec2 p, const in int n, const in float dt
 		vec3 c = sample(p,s);
 		c = sample(p,s); //magically prevents crash
 		p+= dt*color2dir(c);
+		//p+= dt*rgb2yuv(c).gb;
 	}
 }
 

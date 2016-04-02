@@ -92,6 +92,11 @@ vec2 ascend(in vec2 p, const vec3 chan){
 	return dp_dt;
 }
 
+vec3 harmonic(const in vec2 p, const in vec3 h, const in vec3 v, const in vec3 phi){
+	vec3 theta = p.x*h + p.y*v;
+	vec3 x = theta+phi;
+	return sin(2.*PI*x);
+}
 
 void main() {
 	vec2 p = gl_FragCoord.xy;
@@ -112,7 +117,25 @@ void main() {
 	p += drift;
 
 	vec3 val_lp = sample(p,lp);
-	vec3 val_new = sample(p,new_y);
+	vec3 val_new;
+
+	vec3 val_agents = sample(p + warp_agent*color2dir(val_lp), agents);
+
+	//if(warp_agent<=0.){
+		val_new = sample(p,new_y);
+	/*}
+	else{
+		vec3 agx = sample(p, agradx);
+		vec3 agy = sample(p, agrady);
+		vec2 agr = vec2(agx.r, agy.r);
+		vec2 agg = vec2(agx.g, agy.g);
+		vec2 agb = vec2(agx.b, agy.b);
+		val_new = vec3(
+			sample(p+warp_agent*agr, new_y).r,
+			sample(p+warp_agent*agg, new_y).g,
+			sample(p+warp_agent*agb, new_y).b
+			);
+	}*/
 
 	//mirror
 	vec2 mirror_coord = vec2(size-p);//vec2(size.x-p.x, p.y);
@@ -161,22 +184,35 @@ void main() {
 	//val_new -= target_mean;
 
 	vec2 pt = p*invsize;
-	vec2 val_lp2 = color2dir(val_lp);
+	/*vec2 val_lp2 = color2dir(val_lp);
 	vec3 g = vec3(
 		sin(2.*PI*(pt.x+val_lp.g)),
 		sin(2.*PI*(pt.y+val_lp.b)),
 		cos(2.*PI*(pt.x-val_lp.r))
 		);
-	vec2 g2 = vec2(
-		sin(2.*PI*(pt.x+val_lp2.y)),
-		sin(2.*PI*(pt.y+val_lp2.x))
+	vec2 g2 = sin(2.*PI*vec2(
+		pt.x+val_lp2.y,
+		pt.y+val_lp2.x
+		));
+	g = sigmoid(vec3(
+		g.x+g.y+g2.x,
+		g.y+g.z+g2.y,
+		g.x+g.z+g2.x
+		));*/
+	/*vec3 h = sign(val_lp.rrg)*floor(.5+3.5*abs(val_lp.rrg));//vec3(1.,0.,-1.);
+	vec3 v = sign(val_lp.gbb)*floor(.5+3.5*abs(val_lp.gbb));
+	vec3 phi = .5*val_lp.gbr;
+	vec3 g = harmonic(pt, h, v, phi);
+	g = sigmoid(g.xyx + g.yzz);
+	*/
+	vec3 g = vec3(0.);
+	/*float gd = 2.;
+	vec3 g = vec3(
+		sigmoid(gd*(val_lp.g-val_lp.b+val_lp2.y)),
+		sigmoid(gd*(val_lp.b-val_lp.r+val_lp2.x)),
+		sigmoid(gd*(val_lp.r-val_lp.g+val_lp2.x-val_lp2.y))
 		);
-	g = vec3(
-		sigmoid(g.x+g.y+g2.x),
-		sigmoid(g.y+g.z+g2.y),
-		sigmoid(g.x+g.z+g2.x)
-		);
-
+*/
 	float _drive = drive;//*(.5+.5*sin(4.*PI*(pt.y-val_lp.r)));
 
 	//approach the new color
@@ -185,7 +221,7 @@ void main() {
 	d = mix(d, d/(length(d)+.001), compress);
 
 	d += vec3(0.);
-	d += agent_drive*sigmoid(u2b(sample(p, agents)));
+	d += agent_drive*sigmoid(u2b(val_agents));
 	//d += agent_drive*sin(8./3.*PI*sigmoid(sample(p, agents)));
 
 	//some kind of color rotation

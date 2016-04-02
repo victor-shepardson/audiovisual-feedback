@@ -261,15 +261,47 @@ void ofApp::setupConstants()
     //constants for multi-scale processing
     num_scales = 6;
     scale_factor = 2;
+    discard_largest_scale = false;
 
     //target video refresh rate
     frame_rate = 60;
+
+    //buffer sizes
+    oversample_waveform = 1;
+    int undersample_terrain = 10;
+
+    int base_width = 1920;
+    int base_height = 1080;
+
+    float oversample_all = 1.;
+    fullscreen = false;
+    if(fullscreen){
+        //if fullscreen is initially true, adapt to screen size
+        window_width = ofGetScreenWidth();
+        window_height = ofGetScreenHeight();
+    }
+    else{
+        window_width = base_width/4;
+        window_height = base_height/4;
+    }
+
+    //initial master resolution
+    realtime_width = window_width;
+    realtime_height = window_height;
+
+    //size of readback buffer for video streaming, also master resolution during render mode
+    render_width = base_width;
+    render_height = base_height;
+
+    //size of high-precision buffer read back to video volume
+    readback_width = base_width/undersample_terrain;
+    readback_height = base_height/undersample_terrain;
 
     //audio constants
     audio_channels = 2;
     audio_sample_rate = 48000;
     audio_delay = .5;
-    audio_device = 0;
+    audio_device = 3;
     audio_buffer_size = 256;
 
 }
@@ -318,29 +350,6 @@ void ofApp::setup(){
     use_camera = false;
     recording = false;
 
-    oversample_waveform = 1;
-    int undersample_terrain = 10;
-
-    float oversample_all = 1.;
-    fullscreen = false;
-    if(fullscreen){
-        window_width = ofGetScreenWidth();
-        window_height = ofGetScreenHeight();
-    }
-    else{
-        window_width = 1920/4;
-        window_height = 1080/4;
-    }
-
-    realtime_width = window_width*oversample_all;
-    realtime_height = window_height*oversample_all;
-
-    render_width = 1920;//*oversample_all;
-    render_height = 1080;//*oversample_all;
-
-    readback_width = 1920/undersample_terrain;
-    readback_height = 1080/undersample_terrain;
-
     ofSetVerticalSync(true); //does not appear to be working on windows w/ of 0.8.4
 
     ofSetFullscreen(fullscreen);
@@ -381,10 +390,9 @@ void ofApp::setup(){
     display_sequence.push_back(AVFBDM_Monochrome);
     display_sequence.push_back(AVFBDM_Agents);
     //display_sequence.push_back(AVFBDM_Displacement);
-    //display_sequence.push_back(AVFBDM_Filter);
+    display_sequence.push_back(AVFBDM_Filter);
 
 
-    discard_largest_scale = true;
 
     allocateFbos();
 
@@ -408,7 +416,7 @@ void ofApp::setup(){
 }
 
 void ofApp::close(){
-    ofSoundStreamClose();
+    ss.close();
     if(audio_file_size>0)
         endRenderMode();
 }
@@ -674,6 +682,52 @@ void ofApp::gradients(ofxPingPongFbo &src){
     src.endInPlace();
     endShader();
 }
+void ofApp::magnitudes(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    //channel-wise, compute the squared magnitude of the 2-vector formed by textures 1 and 2 of src
+    //e.g. after calling gradients(x), magnitudes(x,y), gradients(y), magnitudes(y,y)
+    //texture 0 of y would store the laplacian of texture 0 of x
+    beginShader("magnitudes");
+    setShaderParam("xsrc", src.getTextureReference(1),0);
+    setShaderParam("ysrc", src.getTextureReference(2),1);
+    setShaderParam("size", src.getWidth(), src.getHeight());
+    dest.beginInPlace();
+    ofRect(0,0,src.getWidth(), src.getHeight());
+    dest.endInPlace();
+    endShader();
+}
+
+void ofApp::displacement(ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    int w = dest.getWidth(), h = dest.getHeight();
+    beginShader("displacement");
+    //setShaderParam("t", t);
+    setShaderParam("src", src.getTextureReference(0), 0);
+    setShaderParam("xgrad", src.getTextureReference(1), 1);
+    setShaderParam("ygrad", src.getTextureReference(2), 2);
+    setShaderParam("size", w, h);
+    //setShaderParam("scale", scale);
+    //setShaderParam("disp_exponent");
+    setShaderParam("warp_color");
+    setShaderParam("warp_grad");
+    dest.begin();
+    ofRect(0,0,w,h);
+    dest.end();
+    endShader();
+}
+
+void ofApp::multilateral_filter(ofxPingPongFbo &src, ofxPingPongFbo &aux, ofxPingPongFbo &dest){
+    int w = dest.getWidth(), h = dest.getHeight();
+    beginShader("multilateral_filter");
+    //setShaderParam("t", t);
+    setShaderParam("state", src.getTextureReference(0), 0);
+    setShaderParam("modulation", aux.getTextureReference(0), 1);
+    setShaderParam("size", w, h);
+    setShaderParam("sigma_color");
+    setShaderParam("sigma_position");
+    dest.begin();
+    ofRect(0,0,w,h);
+    dest.end();
+    endShader();
+}
 
 void ofApp::beginShader(string name){
     try{
@@ -878,8 +932,12 @@ void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, of
 
 //the meat: compute y' as f(t, y) and store in yprime
 void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
-    multiscaleProcessing(t, dyn->getState(), yprime);
-    filtering(t, yprime, yprime);
+    //multiscaleProcessing(t, dyn->getState(), yprime);
+    //filtering(t, yprime, yprime);
+    mov(dyn->getState(), y_pyramid[0]);
+    gradients(y_pyramid[0]);
+    displacement(y_pyramid[0], yprime);
+    multilateral_filter(dyn->getState(), yprime, yprime);
     derivativePost(t, dyn->getState(), yprime, lp->getState(), yprime);
 }
 
@@ -1173,9 +1231,7 @@ void ofApp::beginVideoRecord(){
 
     string fname = ofGetTimestampString();
 
-    //vr.setup(fname, w, h, frame_rate, sample_rate, channels);
     vr.setup(fname, w, h, frame_rate, audio_sample_rate, audio_channels);
-    //vr.setup(fname, w, h, frame_rate, 0, 0);
 
     vr.start();
 }
