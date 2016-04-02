@@ -780,155 +780,156 @@ void ofApp::setShaderParam( const string& p, int v1, int v2, int v3, int v4){
 void ofApp::setShaderParam( const string& p, ofTexture& t, int loc){
     cur_shader->setUniformTexture(p, t, loc);
 }
+//
+//void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+//    float blur_post = params.getFloat("blur_post");
+//    int filter_steps = params.getFloat("filter_steps");
+//
+//    if(!filter_steps){
+//            blur(src, dest, blur_post);
+//    }
+//    else{
+//        edge_aware_filter(src, dest);
+//        for(int i=1; i<filter_steps; i++)
+//            edge_aware_filter(dest, dest);
+//        blur(dest, dest, blur_post);
+//    }
+//}
+//
+//void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+//    int w = src.getWidth();
+//    int h = src.getHeight();
+//
+//    float blur_initial = params.getFloat("blur_initial");
+//    float blur_scale = params.getFloat("blur_scale");
+//    float lf_bleed = params.getFloat("lf_bleed");
+//
+//    //sub(y, f, yprime); //yprime as scratch
+//
+//    blur(src, y_pyramid[0], blur_initial);
+//   // mov(src, y_pyramid[0]);
+//
+//    //compute pyramid + derivatives of y and accumulate to yprime
+//    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+//    for(int i=0; i<y_pyramid.size()-1; i++){
+//        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
+//        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
+//        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
+//       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+//        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+//        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+//        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+//        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
+//        mov(yprime_pyramid[i], y_pyramid[i+1]);
+//    }
+//    int scales_to_process = y_pyramid.size();
+//    if(discard_largest_scale) scales_to_process-=1;
+//    for(int i=scales_to_process-1; i>=0; i--){
+//        float scale = pow(scale_factor,i);
+//        gradients(y_pyramid[i]);
+//        int mod_idx = i;
+//        float mod = 0.;
+//        if(discard_largest_scale){
+//            mod_idx +=1;
+//            mod = 1.;
+//        }
+//        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
+//    }
+//    //for(int i=0; i<scales_to_process; i++){
+//    //    if(!i){
+////-------            mov(yprime_pyramid[0], dest);
+//    /*    }
+//        else{
+//            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
+//            //float m = 1./(i+1);
+//            //mix(m, dest, y_pyramid[0], dest);
+//            blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
+//        }
+//    }*/
+//
+//    /*shader_warp.begin();
+//    shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
+//    shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
+//    shader_warp.setUniform2i("size",w,h);
+//    dest.begin();
+//    ofRect(0,0,w,h);
+//    dest.end();
+//    shader_warp.end();
+//    */
+//    beginShader("multi_warp");
+//    setShaderParam("src", src.getTextureReference(0), 0);
+//    for(int i=0; i<scales_to_process; i++){
+//        stringstream ss;
+//        ss<<"disp"<<i;
+//        setShaderParam(ss.str(), yprime_pyramid[i].getTextureReference(0), 1+i);
+//    }
+//    setShaderParam("num_tex", scales_to_process);
+//    setShaderParam("size", w,h);
+//    dest.begin();
+//    ofRect(0,0,w,h);
+//    dest.end();
+//    endShader();
+//}
+//
+//void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
+//    int w = y.getWidth(), h = y.getHeight();
+//    beginShader("multiscale");
+//    setShaderParam("t", t);
+//    setShaderParam("y", y.getTextureReference(0), 0);
+//    setShaderParam("xgrad", y.getTextureReference(1), 1);
+//    setShaderParam("ygrad", y.getTextureReference(2), 2);
+//    setShaderParam("modulation", m.getTextureReference(0), 3);
+//    setShaderParam("modulate", mod);
+//    setShaderParam("size", w, h);
+//    setShaderParam("scale", scale);
+//    setShaderParam("disp_exponent");
+//    setShaderParam("warp_color");
+//    setShaderParam("warp_grad");
+//    //setShaderParam("color_proj", color_proj);
+//    //setShaderParam("grad_proj", grad_proj);
+//    yprime.begin();
+//    ofRect(0, 0, w, h);
+//    yprime.end();
+//    endShader();
+//}
+//
+//void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
+//    int w = y.getWidth(), h = y.getHeight();
+//
+//    beginShader("post_derivative");
+//    setShaderParam("t", t);
+//    setShaderParam("y", y.getTextureReference(0), 0);
+//    setShaderParam("new_y", new_y.getTextureReference(0), 1);
+//    setShaderParam("lp", lp.getTextureReference(0), 2);
+//    setShaderParam("agents", agent_fbo.getTextureReference(0), 3);
+//    setShaderParam("agradx", agent_fbo.getTextureReference(1), 4);
+//    setShaderParam("agrady", agent_fbo.getTextureReference(2), 5);
+//    setShaderParam("size", w, h);
+//    setShaderParam("warp_agent");
+//    setShaderParam("agent_drive");
+//    setShaderParam("drive");
+//    setShaderParam("time_scale");
+//    setShaderParam("rot");
+//    setShaderParam("bound_clip");
+//    setShaderParam("num_scales", num_scales);
+//    setShaderParam("saturate");
+//    setShaderParam("bias");
+//    setShaderParam("gen");
+//    setShaderParam("compress");
+//    setShaderParam("zoom");
+//    setShaderParam("suck");
+//    setShaderParam("swirl");
+//    setShaderParam("xdrift");
+//    setShaderParam("ydrift");
+//    setShaderParam("mirror_amt");
+//    setShaderParam("mirror_shape");
+//
+//    new_yprime.begin();
+//    ofRect(0,0,w,h);
+//    new_yprime.end();
+//    endShader();
+//}
 
-void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
-    float blur_post = params.getFloat("blur_post");
-    int filter_steps = params.getFloat("filter_steps");
-
-    if(!filter_steps){
-            blur(src, dest, blur_post);
-    }
-    else{
-        edge_aware_filter(src, dest);
-        for(int i=1; i<filter_steps; i++)
-            edge_aware_filter(dest, dest);
-        blur(dest, dest, blur_post);
-    }
-}
-
-void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
-    int w = src.getWidth();
-    int h = src.getHeight();
-
-    float blur_initial = params.getFloat("blur_initial");
-    float blur_scale = params.getFloat("blur_scale");
-    float lf_bleed = params.getFloat("lf_bleed");
-
-    //sub(y, f, yprime); //yprime as scratch
-
-    blur(src, y_pyramid[0], blur_initial);
-   // mov(src, y_pyramid[0]);
-
-    //compute pyramid + derivatives of y and accumulate to yprime
-    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
-    for(int i=0; i<y_pyramid.size()-1; i++){
-        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
-        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
-        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
-       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
-        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
-        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
-        mov(yprime_pyramid[i], y_pyramid[i+1]);
-    }
-    int scales_to_process = y_pyramid.size();
-    if(discard_largest_scale) scales_to_process-=1;
-    for(int i=scales_to_process-1; i>=0; i--){
-        float scale = pow(scale_factor,i);
-        gradients(y_pyramid[i]);
-        int mod_idx = i;
-        float mod = 0.;
-        if(discard_largest_scale){
-            mod_idx +=1;
-            mod = 1.;
-        }
-        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
-    }
-    //for(int i=0; i<scales_to_process; i++){
-    //    if(!i){
-//-------            mov(yprime_pyramid[0], dest);
-    /*    }
-        else{
-            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
-            //float m = 1./(i+1);
-            //mix(m, dest, y_pyramid[0], dest);
-            blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
-        }
-    }*/
-
-    /*shader_warp.begin();
-    shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
-    shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
-    shader_warp.setUniform2i("size",w,h);
-    dest.begin();
-    ofRect(0,0,w,h);
-    dest.end();
-    shader_warp.end();
-    */
-    beginShader("multi_warp");
-    setShaderParam("src", src.getTextureReference(0), 0);
-    for(int i=0; i<scales_to_process; i++){
-        stringstream ss;
-        ss<<"disp"<<i;
-        setShaderParam(ss.str(), yprime_pyramid[i].getTextureReference(0), 1+i);
-    }
-    setShaderParam("num_tex", scales_to_process);
-    setShaderParam("size", w,h);
-    dest.begin();
-    ofRect(0,0,w,h);
-    dest.end();
-    endShader();
-}
-
-void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
-    int w = y.getWidth(), h = y.getHeight();
-    beginShader("multiscale");
-    setShaderParam("t", t);
-    setShaderParam("y", y.getTextureReference(0), 0);
-    setShaderParam("xgrad", y.getTextureReference(1), 1);
-    setShaderParam("ygrad", y.getTextureReference(2), 2);
-    setShaderParam("modulation", m.getTextureReference(0), 3);
-    setShaderParam("modulate", mod);
-    setShaderParam("size", w, h);
-    setShaderParam("scale", scale);
-    setShaderParam("disp_exponent");
-    setShaderParam("warp_color");
-    setShaderParam("warp_grad");
-    //setShaderParam("color_proj", color_proj);
-    //setShaderParam("grad_proj", grad_proj);
-    yprime.begin();
-    ofRect(0, 0, w, h);
-    yprime.end();
-    endShader();
-}
-
-void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
-    int w = y.getWidth(), h = y.getHeight();
-
-    beginShader("post_derivative");
-    setShaderParam("t", t);
-    setShaderParam("y", y.getTextureReference(0), 0);
-    setShaderParam("new_y", new_y.getTextureReference(0), 1);
-    setShaderParam("lp", lp.getTextureReference(0), 2);
-    setShaderParam("agents", agent_fbo.getTextureReference(0), 3);
-    setShaderParam("agradx", agent_fbo.getTextureReference(1), 4);
-    setShaderParam("agrady", agent_fbo.getTextureReference(2), 5);
-    setShaderParam("size", w, h);
-    setShaderParam("warp_agent");
-    setShaderParam("agent_drive");
-    setShaderParam("drive");
-    setShaderParam("time_scale");
-    setShaderParam("rot");
-    setShaderParam("bound_clip");
-    setShaderParam("num_scales", num_scales);
-    setShaderParam("saturate");
-    setShaderParam("bias");
-    setShaderParam("gen");
-    setShaderParam("compress");
-    setShaderParam("zoom");
-    setShaderParam("suck");
-    setShaderParam("swirl");
-    setShaderParam("xdrift");
-    setShaderParam("ydrift");
-    setShaderParam("mirror_amt");
-    setShaderParam("mirror_shape");
-
-    new_yprime.begin();
-    ofRect(0,0,w,h);
-    new_yprime.end();
-    endShader();
-}
 
 //the meat: compute y' as f(t, y) and store in yprime
 void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
