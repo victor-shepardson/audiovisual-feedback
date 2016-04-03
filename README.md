@@ -14,7 +14,7 @@ realtime audiovisual feedback experiments with openFrameworks
 
 note that audio device and ffmpeg location are currently hardcoded in setup()
 
-builds with Win 7 / Code::Blocks / oF 0.8.4, needs support for opengl 3
+builds with Win 7 / msys2 / oF 0.9.3, needs support for opengl 3.2
 
 ## use
 
