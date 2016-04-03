@@ -2,7 +2,6 @@ bin/*
 obj/*
 *.layout
 *.depend
-*.make
 *.workspace
 
 # Compiled Object files

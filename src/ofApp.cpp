@@ -39,7 +39,7 @@ void ofxPingPongFbo::destroy(){
 void ofxPingPongFbo::allocate(ofFbo::Settings s){
     ping->allocate(s);
     pong->allocate(s);
-    //aux->allocate(s);
+    aux->allocate(s);
     settings = s;
 }
 void ofxPingPongFbo::swap(){
@@ -48,7 +48,7 @@ void ofxPingPongFbo::swap(){
     pong = temp;
 }
 void ofxPingPongFbo::save(){
-    if(!aux->isAllocated()) aux->allocate(settings);
+    //if(!aux->isAllocated()) aux->allocate(settings);
     aux->begin();
     ping->draw(0,0);
     aux->end();
@@ -88,12 +88,13 @@ void ofxPingPongFbo::endInPlace(){
     ping->end();
 }
 void ofxPingPongFbo::readToPixels(ofPixels & pixels, int attachmentPoint = 0) {
-    reader.readToPixels(*ping, pixels);
-    //ping->readToPixels(pixels, attachmentPoint);
+    //pixels.allocate(ping->getWidth(), ping->getHeight(), OF_PIXELS_RGB);
+    //reader.readToPixels(*ping, pixels);
+    ping->readToPixels(pixels, attachmentPoint);
 }
 void ofxPingPongFbo::readToPixels(ofFloatPixels & pixels, int attachmentPoint = 0) {
-    reader.readToFloatPixels(*ping, pixels);
-    //ping->readToPixels(pixels, attachmentPoint);
+    //reader.readToFloatPixels(*ping, pixels);
+    ping->readToPixels(pixels, attachmentPoint);
 }
 int ofxPingPongFbo::getNumTextures(){
     return ping->getNumTextures();
@@ -169,7 +170,7 @@ void ofxDynamicalTexture<T>::rkUpdate(float dt){
     shader_rkupdate.setUniformTexture("k3", k[3].getTextureReference(),4);
     shader_rkupdate.setUniform1f("dt", dt);
     ytemp.beginInPlace();
-    ofRect(0, 0, w, h);
+    ofDrawRectangle(0, 0, w, h);
     ytemp.endInPlace();
     shader_rkupdate.end();
 }
@@ -185,7 +186,7 @@ void ofxDynamicalTexture<T>::rkUpdate(float dt, int i){
     shader_rkupdate.setUniformTexture("k0", k[i].getTextureReference(),1);
     shader_rkupdate.setUniform1f("dt", dt);
     ytemp.beginInPlace();
-    ofRect(0, 0, w, h);
+    ofDrawRectangle(0, 0, w, h);
     ytemp.endInPlace();
     shader_rkupdate.end();
 }
@@ -259,7 +260,7 @@ void ofApp::setupConstants()
     remote_port = 6667;
 
     //constants for multi-scale processing
-    num_scales = 6;
+    num_scales = 1;
     scale_factor = 2;
     discard_largest_scale = false;
 
@@ -391,8 +392,6 @@ void ofApp::setup(){
     display_sequence.push_back(AVFBDM_Agents);
     //display_sequence.push_back(AVFBDM_Displacement);
     display_sequence.push_back(AVFBDM_Filter);
-
-
 
     allocateFbos();
 
@@ -554,7 +553,7 @@ void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
         setShaderParam("dest_size", dest.getWidth(), dest.getHeight());
         setShaderParam("num_textures", 1);
         dest.beginInPlace();
-        ofRect(0,0,dest.getWidth(), dest.getHeight());
+        ofDrawRectangle(0,0,dest.getWidth(), dest.getHeight());
         dest.endInPlace();
         endShader();
     }
@@ -578,7 +577,7 @@ void ofApp::resampleToWindow(ofxPingPongFbo &src){
         setShaderParam("src0", src.getTextureReference(0), 0);
         setShaderParam("dest_size", ww,wh);
         setShaderParam("num_textures", 1);
-        ofRect(0,0, ww,wh);
+        ofDrawRectangle(0,0, ww,wh);
         endShader();
     }
 }
@@ -594,7 +593,7 @@ void ofApp::fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode){
     ofEnableBlendMode(mode);
     ofSetColor(c);
     dest.beginInPlace();
-    ofRect(0, 0, dest.getWidth(), dest.getHeight());
+    ofDrawRectangle(0, 0, dest.getWidth(), dest.getHeight());
     dest.endInPlace();
     ofPopStyle();
 }
@@ -610,12 +609,12 @@ void ofApp::blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius){
     setShaderParam("size", w, h);
     setShaderParam("dir",0.,radius);
     dest.beginInPlace();
-    ofRect(0, 0, w, h);
+    ofDrawRectangle(0, 0, w, h);
     dest.endInPlace();
     setShaderParam("state", dest.getTextureReference(0),0);
     setShaderParam("dir",radius,0.);
     dest.begin();
-    ofRect(0, 0, w, h);
+    ofDrawRectangle(0, 0, w, h);
     dest.end();
     endShader();
 }
@@ -625,7 +624,7 @@ void ofApp::edge_aware_filter(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     setShaderParam("state", src.getTextureReference(0),0);
     setShaderParam("size", w, h);
     dest.begin();
-    ofRect(0, 0, w, h);
+    ofDrawRectangle(0, 0, w, h);
     dest.end();
     endShader();
 }
@@ -649,7 +648,7 @@ void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, of
     setShaderParam("a",a);
     setShaderParam("b",b);
     dest.beginInPlace();
-    ofRect(0,0,w,h);
+    ofDrawRectangle(0,0,w,h);
     dest.endInPlace();
     endShader();
 }
@@ -677,7 +676,7 @@ void ofApp::gradients(ofxPingPongFbo &src){
     src.beginInPlace();
     vector<int> grad_bufs(2); grad_bufs[0] = 1; grad_bufs[1] = 2;
     src.setActiveDrawBuffers(grad_bufs);
-    ofRect(0,0,src.getWidth(), src.getHeight());
+    ofDrawRectangle(0,0,src.getWidth(), src.getHeight());
     src.setActiveDrawBuffer(0); //clean up before calling end; active draw buffer assumed to be 0 elsewhere
     src.endInPlace();
     endShader();
@@ -691,7 +690,7 @@ void ofApp::magnitudes(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     setShaderParam("ysrc", src.getTextureReference(2),1);
     setShaderParam("size", src.getWidth(), src.getHeight());
     dest.beginInPlace();
-    ofRect(0,0,src.getWidth(), src.getHeight());
+    ofDrawRectangle(0,0,src.getWidth(), src.getHeight());
     dest.endInPlace();
     endShader();
 }
@@ -709,7 +708,7 @@ void ofApp::displacement(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     setShaderParam("warp_color");
     setShaderParam("warp_grad");
     dest.begin();
-    ofRect(0,0,w,h);
+    ofDrawRectangle(0,0,w,h);
     dest.end();
     endShader();
 }
@@ -724,7 +723,7 @@ void ofApp::multilateral_filter(ofxPingPongFbo &src, ofxPingPongFbo &aux, ofxPin
     setShaderParam("sigma_color");
     setShaderParam("sigma_position");
     dest.begin();
-    ofRect(0,0,w,h);
+    ofDrawRectangle(0,0,w,h);
     dest.end();
     endShader();
 }
@@ -780,156 +779,155 @@ void ofApp::setShaderParam( const string& p, int v1, int v2, int v3, int v4){
 void ofApp::setShaderParam( const string& p, ofTexture& t, int loc){
     cur_shader->setUniformTexture(p, t, loc);
 }
-//
-//void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
-//    float blur_post = params.getFloat("blur_post");
-//    int filter_steps = params.getFloat("filter_steps");
-//
-//    if(!filter_steps){
-//            blur(src, dest, blur_post);
-//    }
-//    else{
-//        edge_aware_filter(src, dest);
-//        for(int i=1; i<filter_steps; i++)
-//            edge_aware_filter(dest, dest);
-//        blur(dest, dest, blur_post);
-//    }
-//}
-//
-//void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
-//    int w = src.getWidth();
-//    int h = src.getHeight();
-//
-//    float blur_initial = params.getFloat("blur_initial");
-//    float blur_scale = params.getFloat("blur_scale");
-//    float lf_bleed = params.getFloat("lf_bleed");
-//
-//    //sub(y, f, yprime); //yprime as scratch
-//
-//    blur(src, y_pyramid[0], blur_initial);
-//   // mov(src, y_pyramid[0]);
-//
-//    //compute pyramid + derivatives of y and accumulate to yprime
-//    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
-//    for(int i=0; i<y_pyramid.size()-1; i++){
-//        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
-//        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
-//        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
-//       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-//        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-//        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
-//        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
-//        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
-//        mov(yprime_pyramid[i], y_pyramid[i+1]);
-//    }
-//    int scales_to_process = y_pyramid.size();
-//    if(discard_largest_scale) scales_to_process-=1;
-//    for(int i=scales_to_process-1; i>=0; i--){
-//        float scale = pow(scale_factor,i);
-//        gradients(y_pyramid[i]);
-//        int mod_idx = i;
-//        float mod = 0.;
-//        if(discard_largest_scale){
-//            mod_idx +=1;
-//            mod = 1.;
-//        }
-//        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
-//    }
-//    //for(int i=0; i<scales_to_process; i++){
-//    //    if(!i){
-////-------            mov(yprime_pyramid[0], dest);
-//    /*    }
-//        else{
-//            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
-//            //float m = 1./(i+1);
-//            //mix(m, dest, y_pyramid[0], dest);
-//            blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
-//        }
-//    }*/
-//
-//    /*shader_warp.begin();
-//    shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
-//    shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
-//    shader_warp.setUniform2i("size",w,h);
-//    dest.begin();
-//    ofRect(0,0,w,h);
-//    dest.end();
-//    shader_warp.end();
-//    */
-//    beginShader("multi_warp");
-//    setShaderParam("src", src.getTextureReference(0), 0);
-//    for(int i=0; i<scales_to_process; i++){
-//        stringstream ss;
-//        ss<<"disp"<<i;
-//        setShaderParam(ss.str(), yprime_pyramid[i].getTextureReference(0), 1+i);
-//    }
-//    setShaderParam("num_tex", scales_to_process);
-//    setShaderParam("size", w,h);
-//    dest.begin();
-//    ofRect(0,0,w,h);
-//    dest.end();
-//    endShader();
-//}
-//
-//void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
-//    int w = y.getWidth(), h = y.getHeight();
-//    beginShader("multiscale");
-//    setShaderParam("t", t);
-//    setShaderParam("y", y.getTextureReference(0), 0);
-//    setShaderParam("xgrad", y.getTextureReference(1), 1);
-//    setShaderParam("ygrad", y.getTextureReference(2), 2);
-//    setShaderParam("modulation", m.getTextureReference(0), 3);
-//    setShaderParam("modulate", mod);
-//    setShaderParam("size", w, h);
-//    setShaderParam("scale", scale);
-//    setShaderParam("disp_exponent");
-//    setShaderParam("warp_color");
-//    setShaderParam("warp_grad");
-//    //setShaderParam("color_proj", color_proj);
-//    //setShaderParam("grad_proj", grad_proj);
-//    yprime.begin();
-//    ofRect(0, 0, w, h);
-//    yprime.end();
-//    endShader();
-//}
-//
-//void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
-//    int w = y.getWidth(), h = y.getHeight();
-//
-//    beginShader("post_derivative");
-//    setShaderParam("t", t);
-//    setShaderParam("y", y.getTextureReference(0), 0);
-//    setShaderParam("new_y", new_y.getTextureReference(0), 1);
-//    setShaderParam("lp", lp.getTextureReference(0), 2);
-//    setShaderParam("agents", agent_fbo.getTextureReference(0), 3);
-//    setShaderParam("agradx", agent_fbo.getTextureReference(1), 4);
-//    setShaderParam("agrady", agent_fbo.getTextureReference(2), 5);
-//    setShaderParam("size", w, h);
-//    setShaderParam("warp_agent");
-//    setShaderParam("agent_drive");
-//    setShaderParam("drive");
-//    setShaderParam("time_scale");
-//    setShaderParam("rot");
-//    setShaderParam("bound_clip");
-//    setShaderParam("num_scales", num_scales);
-//    setShaderParam("saturate");
-//    setShaderParam("bias");
-//    setShaderParam("gen");
-//    setShaderParam("compress");
-//    setShaderParam("zoom");
-//    setShaderParam("suck");
-//    setShaderParam("swirl");
-//    setShaderParam("xdrift");
-//    setShaderParam("ydrift");
-//    setShaderParam("mirror_amt");
-//    setShaderParam("mirror_shape");
-//
-//    new_yprime.begin();
-//    ofRect(0,0,w,h);
-//    new_yprime.end();
-//    endShader();
-//}
 
+void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    float blur_post = params.getFloat("blur_post");
+    int filter_steps = params.getFloat("filter_steps");
+
+    if(!filter_steps){
+            blur(src, dest, blur_post);
+    }
+    else{
+        edge_aware_filter(src, dest);
+        for(int i=1; i<filter_steps; i++)
+            edge_aware_filter(dest, dest);
+        blur(dest, dest, blur_post);
+    }
+}
+
+void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+    int w = src.getWidth();
+    int h = src.getHeight();
+
+    float blur_initial = params.getFloat("blur_initial");
+    float blur_scale = params.getFloat("blur_scale");
+    float lf_bleed = params.getFloat("lf_bleed");
+
+    //sub(y, f, yprime); //yprime as scratch
+
+    blur(src, y_pyramid[0], blur_initial);
+   // mov(src, y_pyramid[0]);
+
+    //compute pyramid + derivatives of y and accumulate to yprime
+    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+    for(int i=0; i<y_pyramid.size()-1; i++){
+        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
+        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
+        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
+       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
+        mov(yprime_pyramid[i], y_pyramid[i+1]);
+    }
+    int scales_to_process = y_pyramid.size();
+    if(discard_largest_scale) scales_to_process-=1;
+    for(int i=scales_to_process-1; i>=0; i--){
+        float scale = pow(scale_factor,i);
+        gradients(y_pyramid[i]);
+        int mod_idx = i;
+        float mod = 0.;
+        if(discard_largest_scale){
+            mod_idx +=1;
+            mod = 1.;
+        }
+        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
+    }
+    //for(int i=0; i<scales_to_process; i++){
+    //    if(!i){
+//-------            mov(yprime_pyramid[0], dest);
+    /*    }
+        else{
+            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
+            //float m = 1./(i+1);
+            //mix(m, dest, y_pyramid[0], dest);
+            blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
+        }
+    }*/
+
+    /*shader_warp.begin();
+    shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
+    shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
+    shader_warp.setUniform2i("size",w,h);
+    dest.begin();
+    ofDrawRectangle(0,0,w,h);
+    dest.end();
+    shader_warp.end();
+    */
+    beginShader("multi_warp");
+    setShaderParam("src", src.getTextureReference(0), 0);
+    for(int i=0; i<scales_to_process; i++){
+        stringstream param_name;
+        param_name<<"disp"<<i;
+        setShaderParam(param_name.str(), yprime_pyramid[i].getTextureReference(0), 1+i);
+    }
+    setShaderParam("num_tex", scales_to_process);
+    setShaderParam("size", w,h);
+    dest.begin();
+    ofDrawRectangle(0,0,w,h);
+    dest.end();
+    endShader();
+}
+
+void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
+    int w = y.getWidth(), h = y.getHeight();
+    beginShader("multiscale");
+    setShaderParam("t", t);
+    setShaderParam("y", y.getTextureReference(0), 0);
+    setShaderParam("xgrad", y.getTextureReference(1), 1);
+    setShaderParam("ygrad", y.getTextureReference(2), 2);
+    setShaderParam("modulation", m.getTextureReference(0), 3);
+    setShaderParam("modulate", mod);
+    setShaderParam("size", w, h);
+    setShaderParam("scale", scale);
+    setShaderParam("disp_exponent");
+    setShaderParam("warp_color");
+    setShaderParam("warp_grad");
+    //setShaderParam("color_proj", color_proj);
+    //setShaderParam("grad_proj", grad_proj);
+    yprime.begin();
+    ofDrawRectangle(0, 0, w, h);
+    yprime.end();
+    endShader();
+}
+
+void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
+    int w = y.getWidth(), h = y.getHeight();
+
+    beginShader("post_derivative");
+    setShaderParam("t", t);
+    setShaderParam("y", y.getTextureReference(0), 0);
+    setShaderParam("new_y", new_y.getTextureReference(0), 1);
+    setShaderParam("lp", lp.getTextureReference(0), 2);
+    setShaderParam("agents", agent_fbo.getTextureReference(0), 3);
+    setShaderParam("agradx", agent_fbo.getTextureReference(1), 4);
+    setShaderParam("agrady", agent_fbo.getTextureReference(2), 5);
+    setShaderParam("size", w, h);
+    setShaderParam("warp_agent");
+    setShaderParam("agent_drive");
+    setShaderParam("drive");
+    setShaderParam("time_scale");
+    setShaderParam("rot");
+    setShaderParam("bound_clip");
+    setShaderParam("num_scales", num_scales);
+    setShaderParam("saturate");
+    setShaderParam("bias");
+    setShaderParam("gen");
+    setShaderParam("compress");
+    setShaderParam("zoom");
+    setShaderParam("suck");
+    setShaderParam("swirl");
+    setShaderParam("xdrift");
+    setShaderParam("ydrift");
+    setShaderParam("mirror_amt");
+    setShaderParam("mirror_shape");
+
+    new_yprime.begin();
+    ofDrawRectangle(0,0,w,h);
+    new_yprime.end();
+    endShader();
+}
 
 //the meat: compute y' as f(t, y) and store in yprime
 void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
@@ -964,7 +962,7 @@ void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
     setShaderParam("epsilon", epsilon);
     setShaderParam("time_scale");
     yprime.beginInPlace();
-    ofRect(0,0,w,h);
+    ofDrawRectangle(0,0,w,h);
     yprime.endInPlace();
     endShader();
 }
@@ -999,7 +997,7 @@ void ofApp::draw(){
     //draw agent path
     int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
     float alpha = 1 - pow(2, -1./(fade_time*cur_frame_rate));
-    fill(agent_fbo, ofFloatColor(.0,.0,.0,alpha));
+    fill(agent_fbo, ofFloatColor(.5,.5,.5,alpha));
     agent_fbo.beginInPlace();
     vwt->draw(0, 0, aw, ah);
     agent_fbo.endInPlace();
@@ -1032,7 +1030,7 @@ void ofApp::draw(){
             setShaderParam("size", display_fbo.getWidth(), display_fbo.getHeight());
             setShaderParam("state", y_fbo.getTextureReference(), 0);
             display_fbo.begin();
-            ofRect(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
+            ofDrawRectangle(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
             display_fbo.end();
             endShader();
             break;
@@ -1099,8 +1097,8 @@ void ofApp::draw(){
     else{
         b2u(y_fbo, readback_fbo);
     }
-    ofFloatPixels pix;
-    readback_fbo.readToPixels(pix,0);
+    ofFloatPixels *pix = new ofFloatPixels();
+    readback_fbo.readToPixels(*pix,0);
     vwt->insert_frame(pix);
 
 
@@ -1157,7 +1155,7 @@ void ofApp::initRandom(ofxPingPongFbo &target, int seed){
     ofFloatPixels newState;
     int w = target.getWidth();
     int h = target.getHeight();
-    newState.allocate(w, h, OF_IMAGE_COLOR);
+    newState.allocate(w, h, OF_PIXELS_RGB);
     for(int x=0; x<w; x++){
         for(int y=0; y<h; y++){
             float r = ofSignedNoise(x,y,frame);
@@ -1199,10 +1197,10 @@ void ofApp::toggleVideoRecord(){
 void ofApp::beginVideoRecord(){
     int w = render_fbo.getWidth(), h = render_fbo.getHeight();
 
-    stringstream ss;
-    ss<<int(h*w*frame_rate*24/1000)<<"k";
-    cout<<ss.str()<<endl;
-    vr.setVideoBitrate(ss.str());
+    stringstream bitrate;
+    bitrate<<int(h*w*frame_rate*24/1000)<<"k";
+    cout<<bitrate.str()<<endl;
+    vr.setVideoBitrate(bitrate.str());
 
    // vr.setVideoCodec("ffv1"); //black or frozen video in vlc, eats memory
     //vr.setVideoCodec("ffvhuff"); //works but memory fills quickly and crashes
@@ -1300,12 +1298,12 @@ void ofApp::beginRenderMode(){
     vwt->setAudioDelay(1./frame_rate + 1./audio_sample_rate);
 
     //open a new wav file and write header
-    stringstream ss;
+    stringstream file_name;
     cur_save_dir = ofDirectory(ofGetTimestampString());
     cur_save_dir.create();
-    ss << cur_save_dir.path()<<ofToDataPath("/audio.wav");
+    file_name << cur_save_dir.path()<<ofToDataPath("/audio.wav");
 
-    openAudioFile(ss.str());
+    openAudioFile(file_name.str());
 }
 
 void ofApp::endRenderMode(){
@@ -1359,10 +1357,10 @@ void ofApp::keyPressed(int key){
     if(key=='s'){
         ofPixels p;
         display_fbo.readToPixels(p);
-        ofImage ss = ofImage(p);
+        ofImage screenshot = ofImage(p);
         stringstream fname;
         fname<<"ss-"<<ofGetTimestampString()<<".png";
-        ss.saveImage(fname.str());
+        screenshot.saveImage(fname.str());
     }
     if(key=='r'){
         initRandom(lp->getState(), seed+1);
@@ -1371,7 +1369,7 @@ void ofApp::keyPressed(int key){
         ofPushStyle();
         ofSetColor(0,0,0);
         agent_fbo.begin();
-        ofRect(0,0,agent_fbo.getWidth(),agent_fbo.getHeight());
+        ofDrawRectangle(0,0,agent_fbo.getWidth(),agent_fbo.getHeight());
         agent_fbo.end();
         ofPopStyle();
     }

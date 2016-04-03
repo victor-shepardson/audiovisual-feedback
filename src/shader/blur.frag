@@ -39,6 +39,9 @@ vec3 blur(){
 		norm+= weight;
 	}
 	acc/=norm;
+	//if(abs(acc.r)<.00000000000001) acc.r = 0.;
+	//if(abs(acc.g)<.00000000000001) acc.g = 0.;
+	//if(abs(acc.b)<.00000000000001) acc.b = 0.;
 	return acc;
 }
 
