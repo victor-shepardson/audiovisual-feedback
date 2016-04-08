@@ -254,10 +254,13 @@ void ofxDynamicalTexture<T>::update(float dt){
 
 void ofApp::setupConstants()
 {
+    ofxXmlSettings s;
+    s.loadFile(ofToDataPath("../../src/settings.xml"));
+
     //OSC
-    local_port = 6666;
-    remote_host = "localhost";
-    remote_port = 6667;
+    local_port = s.getValue("osc_local_port", 6666);
+    remote_host = s.getValue("osc_remote_host", "localhost");
+    remote_port = s.getValue("osc_remote_port", 6667);
 
     //constants for multi-scale processing
     num_scales = 1;
@@ -265,16 +268,14 @@ void ofApp::setupConstants()
     discard_largest_scale = false;
 
     //target video refresh rate
-    frame_rate = 60;
+    frame_rate = s.getValue("video_frame_rate", 60);
 
     //buffer sizes
-    oversample_waveform = 1;
-    int undersample_terrain = 10;
+    int base_width = s.getValue("base_width", 1920);
+    int base_height = s.getValue("base_height", 1080);
+    oversample_waveform = s.getValue("oversample_waveform", 1);
+    int undersample_terrain = s.getValue("undersample_terrain", 10);
 
-    int base_width = 1920;
-    int base_height = 1080;
-
-    float oversample_all = 1.;
     fullscreen = false;
     if(fullscreen){
         //if fullscreen is initially true, adapt to screen size
@@ -300,10 +301,10 @@ void ofApp::setupConstants()
 
     //audio constants
     audio_channels = 2;
-    audio_sample_rate = 48000;
-    audio_delay = .5;
-    audio_device = 3;
-    audio_buffer_size = 256;
+    audio_sample_rate = s.getValue("audio_sample_rate", 48000);
+    audio_delay = s.getValue("audio_delay", .5);
+    audio_device = s.getValue("audio_device", 3);
+    audio_buffer_size = s.getValue("audio_buffer_size", 256);
 
 }
 void ofApp::setupParameters()

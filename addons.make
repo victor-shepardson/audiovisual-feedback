@@ -3,3 +3,4 @@ ofxVideoWaveTerrain
 ofxVideoRecorder
 ofxFastFboReader
 ofxOsc
+ofxXmlSettings

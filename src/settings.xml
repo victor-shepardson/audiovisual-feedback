@@ -1,0 +1,15 @@
+<osc_local_port>6666</osc_local_port>
+<osc_remote_host>localhost</osc_remote_host>
+<osc_remote_port>6667</osc_remote_port>
+
+<audio_sample_rate>48000</audio_sample_rate>
+<audio_delay>0.5</audio_delay>
+<audio_device>3</audio_device>
+<audio_buffer_size>256</audio_buffer_size>
+
+<video_frame_rate>60</video_frame_rate>
+
+<base_width>1920</base_width>
+<base_height>1080</base_height>
+<undersample_terrain>10</undersample_terrain>
+<oversample_waveform>1</oversample_waveform>

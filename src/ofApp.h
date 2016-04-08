@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "ofxGui.h"
+#include "ofxXmlSettings.h"
 #include "ofxOscParameterSync.h"
 #include "ofxVideoWaveTerrain.h"
 #include "ofxVideoRecorder.h"
