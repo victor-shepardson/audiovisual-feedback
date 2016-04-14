@@ -1,0 +1,21 @@
+<graph>
+	<node name="const00"></node>
+
+	<node name="hblur" shader="blur">
+	 	<inputs>
+	   		<input>const00</input>
+		</inputs>
+		<defaults>
+			<float name="dir/0">5</float>
+		</defaults>
+	</node>
+
+	<node name="vblur" shader="blur">
+	 	<inputs>
+	   		<input>hblur</input>
+		</inputs>
+		<defaults>
+			<float name="dir/1">5</float>
+		</defaults>
+	</node>
+</graph>

@@ -8,6 +8,169 @@
 #include "ofxVideoRecorder.h"
 #include "ofxFastFboReader.h"
 
+#include <unordered_set>
+#include <unordered_map>
+
+////// TODO:
+/*
+write euler.frag and integrator.xml
+*/
+
+
+//class to distribute fbos for space+time efficient drawing
+//for example in a drawing graph we don't need an fbo for every node,
+//we can free a node's resources once all its dependencies have drawn
+//however we don't want to be allocating and freeing GPU memory every frame
+//so assuming that the shapes of buffers needed don't change much/often/at all between frames,
+//we can just allocate once and hand out pointers to requesting nodes
+    //ofFbo::Settings objects should hash to sets of free and allocated fbos with those settings
+    //those sets should have constant time insert and remove
+class ofxFboAllocator{
+public:
+    //produce an fbo pointer with the specified settings
+    ofFbo* allocate(ofFbo::Settings s);
+
+    //release an fbo pointer back to the pool of available fbos
+    void release(ofFbo *fbo);
+
+private:
+    class ofxFboAllocatorBin{
+    public:
+        unordered_set<ofFbo*> available;
+        unordered_set<ofFbo*> unavailable;
+    };
+
+    unordered_map<uint64_t, ofxFboAllocatorBin> bins;
+
+    uint64_t keyFromSettings(ofFbo::Settings);
+    uint64_t keyFromFbo(ofFbo*);
+    uint64_t keyFromDim(uint64_t,uint64_t,uint64_t);
+};
+
+class ofxBaseShaderNode{
+public:
+    //incremented by constructor
+    static uint32_t node_count;
+
+    string name;
+
+    //initialized each cycle to the number of nodes depending on this one, 
+    //and decremented by those nodes after drawing.
+    uint32_t dependent_count;
+
+    //track the number of nodes dependent on this one
+    uint32_t num_dependents;
+
+    //fbo settings for this node's output
+    ofFbo::Settings settings;
+
+    //list of nodes upon which this one depends (ordered list of inputs)
+    vector<ofxBaseShaderNode*> inputs;
+
+    //list of sampler uniforms in shader
+    vector<string> textureInputs;
+
+    //pointer to resource allocator
+    ofxFboAllocator *allocator;
+
+    //pointer to output fbo
+    ofFbo *output;
+
+    ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n, ofShader *sh);
+
+    //black-box drawing function to be differentiated by subclasses
+    //dummy draw() so class is not abstract
+    void draw();
+    //virtual void draw();
+
+    //graph-traversing update function
+    void update();
+
+    //request from the allocator an appropriate fbo to draw to
+    void requestBuffer();
+
+    //release output fbo to the allocator
+    void releaseBuffer();
+
+    bool getDirty();
+    void setDirty(bool b);
+
+    //recursively dirty the whole graph
+    void dirtyAll();
+
+    uint32_t getNumOutputTextures();
+    uint32_t getNumInputTextures(uint32_t i);
+    uint32_t getNumInputs();
+
+    ofParameterGroup &getParameterGroup();
+    ofParameterGroup& getParameter(string path);
+    void setParameter(string, float);
+    void setParameter(string, int);
+
+
+    //bool verifyInputShapes();
+
+    //when no more dependents, release resources
+    //note that if a node starts without dependents, this will not be called
+    void decrementDependents();
+
+private:
+    //flag noting whether this node has been drawn yet this cycle
+    bool dirty;
+
+    bool hasSizeParameter;
+
+    //expose parameters
+    ofParameterGroup params;
+
+    //
+    ofShader *shader;
+
+    //parse shader for uniforms, add to params
+    void setupParameters();
+    void setupParameter(string type, string name);
+
+    void setShaderParam(ofParameterGroup &g);
+};
+
+//class representing a node whose output is not updated within a cycle
+// (i.e., may be updated externally by an integrator or other drawing subsystem)
+class ofxConstantShaderNode : public ofxBaseShaderNode{
+public:
+     //override constructor to request a buffer
+    ofxConstantShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n);
+    //override getDirty() to always return false
+    bool getDirty();
+    //override decrementDependents() to not release buffer
+    void decrementDependents();
+};
+
+//class managing a DAG of ofxBaseShaderNodes
+class ofxShaderGraph{
+public:
+     //fbo settings (stores resolution and type; numColorBuffers will be set by each node)
+    ofFbo::Settings fbo_settings;
+
+    //pointer to resource allocator
+    ofxFboAllocator *allocator;
+
+    ofParameterGroup params;
+
+    unordered_map<string, ofxBaseShaderNode*> nodes;
+    unordered_set<ofxBaseShaderNode*> roots;
+
+    //set all nodes to dirty
+    //call update on each root node
+    void update();
+
+    //construct a graph from XML
+    void buildFromXml(ofXml x);
+
+    ofxShaderGraph(ofxFboAllocator *a, ofFbo::Settings s);
+};
+
+//================================================================================
+
 //should replace aux with a collection of buffers and save()/restore() with push()/pop()
 //then lazily allocate new buffers to aux
 class ofxPingPongFbo{
@@ -144,7 +307,7 @@ class ofApp : public ofBaseApp{
         void displacement(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void multilateral_filter(ofxPingPongFbo &src, ofxPingPongFbo &aux, ofxPingPongFbo &dest);
 
-
+        void mov(ofFbo &src, ofFbo &dest);
 
         void beginShader(string);
         void endShader();
@@ -174,6 +337,9 @@ class ofApp : public ofBaseApp{
         string remote_host;
         ofxPanel gui;
 
+        ofxFboAllocator fbo_allocator;
+        ofxShaderGraph forward_graph;
+
     //now naming all these from params.txt and using params.getFloat("name"); leaving this here for the comments for now
 /*        ofParameter<float> filter_steps; //truncated to int: number of times to apply edge-aware filter
         ofParameter<float> blur_post; //radius of gaussian blur applied after warping
@@ -186,7 +352,7 @@ class ofApp : public ofBaseApp{
 
         ofParameter<float> disp_exponent; //how to scale displacements to compensate for downsampling
         ofParameter<float> xdrift; //horizontal displacement
-        ofParameter<float> ydrift; //vertical displacement
+        of`eter<float> ydrift; //vertical displacement
         ofParameter<float> zoom; //scale around center
         ofParameter<float> suck; //radial displacement
         ofParameter<float> swirl; //perpendicular to suck

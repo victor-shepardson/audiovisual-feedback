@@ -1,0 +1,69 @@
+<graph name="forward">
+	<node name="state00"></node>
+
+	<node name="lp00"></node>
+
+	<node name="agents"></node>
+
+	<node name="agent_grad" shader="grad">
+		<inputs>
+			<input>agents</input>
+		</inputs>
+	</node>
+
+	<node name="filter00" shader="lp_filter">
+		<inputs>
+			<input>state00</input>
+			<input>lp00</input>
+		</inputs>
+	</node>
+
+	<node name="grad00" shader="grad">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>
+
+	<node name="displacement00" shader="displacement">
+		<inputs>
+			<input>state00</input>
+			<input>grad00</input>
+		</inputs>
+	</node>
+
+	<node name="multilateral00" shader="multilateral_filter">
+		<inputs>
+			<input>state00</input>
+			<input>displacement00</input>
+		</inputs>
+	</node>
+
+	<node name="derivative00" shader="post_derivative">
+		<inputs>
+			<input>state00</input>
+			<input>multilateral00</input>
+			<input>lp00</input>
+			<input>agents</input>
+			<input>agent_grad</input>
+		</inputs>
+	</node>
+
+<!--	<node name="hblur00" shader="blur">
+	 	<inputs>
+	   		<input>state00</input>
+		</inputs>
+		<defaults>
+			<float name="dir/0">5</float>
+		</defaults>
+	</node>
+
+	<node name="vblur00" shader="blur">
+	 	<inputs>
+	   		<input>hblur00</input>
+		</inputs>
+		<defaults>
+			<float name="dir/1">5</float>
+		</defaults>
+	</node>
+!-->
+</graph>

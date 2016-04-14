@@ -1,6 +1,548 @@
 #include "ofApp.h"
 #include "math.h"
 
+uint64_t ofxFboAllocator::keyFromSettings(ofFbo::Settings s){
+    uint64_t w = s.width;
+    uint64_t h = s.height;
+    uint64_t c = s.numColorbuffers;
+    return keyFromDim(w,h,c);
+}
+
+uint64_t ofxFboAllocator::keyFromFbo(ofFbo *fbo){
+    uint64_t w = fbo->getWidth();
+    uint64_t h = fbo->getHeight();
+    uint64_t c = fbo->getNumTextures();
+    return keyFromDim(w,h,c);
+}
+
+uint64_t ofxFboAllocator::keyFromDim(uint64_t w, uint64_t h, uint64_t c){
+    uint64_t mask = (1<<25)-1;
+    w &= mask;
+    h &= mask;
+    c &= mask;
+    return h & (w<<24) & (c<<48);
+}
+
+ofFbo* ofxFboAllocator::allocate(ofFbo::Settings s){
+    uint64_t k = keyFromSettings(s);
+    ofxFboAllocatorBin &bin = bins[k];
+    ofFbo * ret;
+    if(bin.available.size()){
+        auto i = bin.available.begin();
+        ret = *i;
+        bin.available.erase(i);
+    }
+    else{
+        ret = new ofFbo();
+        ret->allocate(s);
+    }
+    bin.unavailable.insert(ret);
+    return ret;
+}
+
+void ofxFboAllocator::release(ofFbo *fbo){
+    if(!fbo){
+        cout<<"ofxFboAllocator warning: attempt to release null fbo"<<endl;
+        return;
+    }
+    uint64_t k = keyFromFbo(fbo);
+    ofxFboAllocatorBin &bin = bins[k];
+    auto i = bin.unavailable.find(fbo);
+    if(i == bin.unavailable.end()){
+        cout<<"ofxFboAllocator warning: attempt to release fbo not owned by allocator"<<endl;
+        return;
+    }
+    bin.available.insert(fbo);
+    bin.unavailable.erase(i);
+}
+
+
+uint32_t ofxBaseShaderNode::node_count = 0;
+ofxBaseShaderNode::ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n, ofShader * sh){
+    allocator = a;
+    settings = s;
+    shader = sh;
+    node_count++;
+    output = NULL;
+    hasSizeParameter = false;
+
+    if(n==""){
+        char temp[100];
+        snprintf(temp, 100, "node%04d", node_count);
+        name = string(temp);
+    }
+    else
+        name = n;
+
+    if(shader)
+        setupParameters();
+}
+
+//note that extraneous whitespace is not supported; uniforms must be declared as:
+//uniform <type> <name>;
+//with exactly one space between each token, each on a separate line.
+void ofxBaseShaderNode::setupParameters(){
+    params.setName(name);
+
+    string src = shader->getShaderSource(GL_FRAGMENT_SHADER);
+
+    uint32_t output_count = 0;
+
+    vector<string> src_lines = ofSplitString(src, "\n");
+    for(auto i = src_lines.begin(); i!=src_lines.end(); i++){
+        vector<string> tokens = ofSplitString(*i, " ");
+        if(tokens.size() < 3)
+            continue;
+        string keyword = tokens[0];
+        string param_type = tokens[1];
+        string param_name = tokens[2].substr(0, tokens[2].length()-1);//ofSplitString(tokens[2], ";", true, true)[0];
+        if(keyword=="uniform"){
+            //skip special parameters which are handled explicitly in draw()
+            if(param_name == "size" && param_type == "ivec2"){
+                cout<<name<<": special uniform \"size\" detected"<<endl;
+                continue;
+            }
+            cout<<"<"<<name<<"> <"<<param_type<<"> <"<<param_name<<">"<<endl;
+            setupParameter(param_type, param_name);
+        }
+        else if(keyword=="out"){
+            if(param_type!="vec4")
+                cout<<"warning: only vec4 outs supported"<<endl;
+            output_count++;
+        }
+    }
+
+    cout<<params<<endl;
+
+    //set number of output textures based on number of "out vec4"s in shader
+    cout<<"detected "<<output_count<<" output buffers"<<endl;
+    settings.numColorbuffers = output_count;
+}
+
+//construct an ofParameterGroup representing a vector type
+//or is param_type is a sampler, put it in textureInputs
+void ofxBaseShaderNode::setupParameter(string param_type, string param_name){
+    bool isIntegral = true;
+    uint32_t dim = 0;
+
+    if(param_type == "int"){
+        dim = 1;
+    }else if(param_type == "ivec2"){
+        dim = 2;
+    }else if(param_type == "ivec3"){
+        dim = 3;
+    }else if(param_type == "ivec4"){
+        dim = 4;
+    }else if(param_type == "float"){
+        isIntegral = false;
+        dim = 1;
+    }else if(param_type == "vec2"){
+        isIntegral = false;
+        dim = 2;
+    }else if(param_type == "vec3"){
+        isIntegral = false;
+        dim = 3;
+    }else if(param_type == "vec4"){
+        isIntegral = false;
+        dim = 4;
+    }
+
+    if(param_type == "sampler2D"){
+        textureInputs.push_back(param_name);
+    }
+    else{
+        ofParameterGroup g;
+        g.setName(param_name);
+        for(uint32_t i = 0; i<dim; i++){
+            int initial = 0;
+            //automatically set size to output dimensions if it is an ivec2
+            //not ideal to expose the size parameter, which should not be modified
+            //could instead leave it out of parameter group, set a flag indicating its presence,
+            //and explicitly set it from draw():
+            if(param_name=="size" && isIntegral && dim==2)
+                hasSizeParameter = true;
+            /*if(param_name=="size" && isIntegral && dim==2)
+                if(i)
+                    initial=settings.height;
+                else
+                    initial=settings.width;*/
+            stringstream ss;
+            ss<<i;
+            string elem_name = ss.str();
+            if(isIntegral){
+                g.add(ofParameter<int>().set(elem_name, initial));
+            }else{
+                g.add(ofParameter<float>().set(elem_name, initial));
+            }
+        }
+        params.add(g);
+    }
+}
+
+void ofxBaseShaderNode::update(){
+    //if not dirty, nothing to do
+    if(!getDirty())
+        return;
+    //first, make sure all dependencies are up to date
+    for(auto i = inputs.begin(); i<inputs.end(); i++){
+        ofxBaseShaderNode *node = *i;
+        if(node->getDirty())
+            node->update();
+    }
+    //get a buffer and draw to it
+    if(!output)
+        requestBuffer();
+    draw();
+    setDirty(false);
+
+    //update inputs so they know when to free resources
+    for(auto i = inputs.begin(); i<inputs.end(); i++){
+        ofxBaseShaderNode *node = *i;
+        node->decrementDependents();
+    }
+}
+
+//request from the allocator an appropriate fbo to draw to
+void ofxBaseShaderNode::requestBuffer(){
+    if(output)
+        cout<<"ofxBaseShaderNode warning: requesting new buffer without releasing old one"<<endl;
+    output = allocator->allocate(settings);
+    //activate all drawbuffers
+    vector<int> db;
+    for(size_t i=0; i<getNumOutputTextures(); i++)
+        db.push_back(i);
+    output->setActiveDrawBuffers(db);
+}
+
+//release output fbo to the allocator
+void ofxBaseShaderNode::releaseBuffer(){
+    if(output)
+        allocator->release(output);
+    output = NULL;
+}
+
+bool ofxBaseShaderNode::getDirty(){
+    return dirty;
+}
+void ofxBaseShaderNode::setDirty(bool b){
+    dirty = b;
+}
+
+//recursively dirty the whole graph
+void ofxBaseShaderNode::dirtyAll(){
+    for(auto i = inputs.begin(); i<inputs.end(); i++){
+        ofxBaseShaderNode *node = *i;
+        node->dirtyAll();
+    }
+    setDirty(true);
+}
+
+uint32_t ofxBaseShaderNode::getNumOutputTextures(){
+    return settings.numColorbuffers;
+}
+
+//note that getNumInputs() and getNumInputTextures() require that inputs has been populated already
+uint32_t ofxBaseShaderNode::getNumInputTextures(uint32_t i){
+    if(i<inputs.size())
+        return inputs[i]->getNumOutputTextures();
+    return 0;
+}
+uint32_t ofxBaseShaderNode::getNumInputs(){
+    return inputs.size();
+}
+
+ofParameterGroup& ofxBaseShaderNode::getParameterGroup(){
+    return params;
+}
+
+ofParameterGroup& ofxBaseShaderNode::getParameter(string path){
+    vector<string> tokens = ofSplitString(path, "/", true);
+    ofParameterGroup* g = &params;
+    for(auto i=tokens.begin(); i!=tokens.end(); i++){
+        string token = *i;
+        try{
+            ofAbstractParameter &p = g->get(token);
+            g = &static_cast<ofParameterGroup&>(p);
+        }
+        catch(exception e){
+            cout<<"warning: parameter "<<path<<" does not exist (specifically at \""<<token<<"\")"<<endl;
+            break;
+        }    
+    }
+    return *g;
+}
+
+void ofxBaseShaderNode::setParameter(string path, float v){
+    try{
+        vector<string> tokens = ofSplitString(path, "/", true);
+        string elem = tokens.back();
+        tokens.pop_back();
+        getParameter(ofJoinString(tokens, "/")).getFloat(elem) = v;
+    }
+    catch(exception e){
+        cout<<"warning: bad parameter path "<<path<<endl;
+    }
+}
+
+void ofxBaseShaderNode::setParameter(string path, int v){
+    try{
+        vector<string> tokens = ofSplitString(path, "/", true);
+        string elem = tokens.back();
+        tokens.pop_back();
+        getParameter(ofJoinString(tokens, "/")).getInt(elem) = v;
+    }
+    catch(exception e){
+        cout<<"warning: bad parameter path "<<path<<endl;
+    }
+}
+/*bool ofxBaseShaderNode::verifyInputShapes(){
+    bool b = true;
+    for(auto i = inputs.begin(); i<input.end(); i++){
+        ofxBaseShaderNode &node = **i;
+        b = b && 
+    }
+}*/
+
+//when no more dependents, release resources
+void ofxBaseShaderNode::decrementDependents(){
+    dependent_count--;
+    if(dependent_count==0)
+        releaseBuffer();
+}
+
+//infer uniform type from structure of ofParameterGroup g
+//and set in shader from values in g.
+//assumes shader->begin() has been called already
+void ofxBaseShaderNode::setShaderParam(ofParameterGroup &g){
+    size_t dim = g.size();
+    string type = g.getType(0);
+    string param_name = g.getName();
+    if(type=="float")
+        switch(dim){
+            case 1:
+                shader->setUniform1f(name, g.getFloat("0"));
+                break;
+            case 2:
+                shader->setUniform2f(name, g.getFloat("0"), g.getFloat("1"));
+                break;
+            case 3:
+                shader->setUniform3f(name, g.getFloat("0"), g.getFloat("1"), g.getFloat("2"));
+                break;
+            case 4:
+                shader->setUniform4f(name, g.getFloat("0"), g.getFloat("1"), g.getFloat("2"), g.getFloat("3"));
+        }
+    else if(type=="int")
+        switch(dim){
+            case 1:
+                shader->setUniform1i(name, g.getInt("0"));
+                break;
+            case 2:
+                shader->setUniform2i(name, g.getInt("0"), g.getInt("1"));
+                break;
+            case 3:
+                shader->setUniform3i(name, g.getInt("0"), g.getInt("1"), g.getInt("2"));
+                break;
+            case 4:
+                shader->setUniform4i(name, g.getInt("0"), g.getInt("1"), g.getInt("2"), g.getInt("3"));
+        }
+}
+
+void ofxBaseShaderNode::draw(){
+    if(!shader || !output)
+        return;
+    uint32_t w = output->getWidth(), h = output->getHeight();
+    shader->begin();
+    //loop over params and bind to uniforms
+    for(auto i = params.begin(); i!=params.end(); i++){
+        //ofParameterGroup &g = (**i).castGroup();
+        auto ptr = static_pointer_cast<ofParameterGroup>(*i);
+        ofParameterGroup &g = *ptr;
+        setShaderParam(g);
+    }
+    //set size parameter
+    if(hasSizeParameter){
+        shader->setUniform2i("size", settings.width, settings.height);
+    }
+    //loop over inputs, then over textures and bind to uniforms
+    size_t tex_count = 0;
+    for(auto i = inputs.begin(); i!=inputs.end(); i++){
+        string param_name = textureInputs[tex_count];
+        ofxBaseShaderNode *input_node = *i;
+        //loop over textures in each input
+        for(size_t j=0; j<input_node->getNumOutputTextures(); j++){
+            ofTexture &tex = input_node->output->getTexture(j);
+            shader->setUniformTexture(param_name, tex, tex_count);
+            tex_count++;            
+        }
+    }
+    //draw
+    output->begin();    
+    ofDrawRectangle(0,0,w,h);
+    output->end();
+    shader->end();
+    return;
+}
+
+
+//override getDirty() to always return false
+bool ofxConstantShaderNode::getDirty(){
+    return false;
+}
+//override constructor to request a buffer
+ofxConstantShaderNode::ofxConstantShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n)
+: ofxBaseShaderNode(a, s, n, NULL){
+    requestBuffer();
+}
+//override decrementDependents() to not release buffer
+void ofxConstantShaderNode::decrementDependents(){
+    dependent_count--;
+}
+
+ofxShaderGraph::ofxShaderGraph(ofxFboAllocator *a, ofFbo::Settings s){
+    allocator = a;
+    fbo_settings = s;
+}
+
+void ofxShaderGraph::buildFromXml(ofXml x){
+    //each top-level element in x is a node with:
+        // name
+        // shader path
+        // names of inputs
+        // any default parameter values
+
+    //<graph>
+    //  <node name="node00" shader="shader00">
+    //      <inputs>
+    //          <input>node01</input>
+    //          <input>node02</input>
+    //      </inputs>
+    //      <defaults>
+    //          <float name="dir/0">1</float>
+    //      </defaults>
+    //  </node>
+    // ...
+    //</graph>
+
+    unordered_set<string> root_names;
+
+    x.reset();
+    unsigned long n = x.getNumChildren();
+
+    params.setName(x.getName());
+
+    //first pass, create all nodes and set defaults
+    for(unsigned long i=0; i<n; i++){
+        x.reset();
+        x.setToChild(i);
+        if(x.getName()!="node")
+            continue;
+        string name = x.getAttribute("name");
+        if(name==""){
+            cout<<"ofxShaderGraph warning: anonymous node in XML"<<endl;
+            continue;
+        }
+        string shader_name = x.getAttribute("shader");
+        ofxBaseShaderNode *node;
+        if(shader_name == ""){
+            //shaderless node
+            node = new ofxConstantShaderNode(allocator, fbo_settings, name);
+        }
+        else{
+            ofShader *shader = new ofShader();
+            stringstream shader_path;
+            shader_path<<ofToDataPath("../../src/shader/")<<shader_name;
+            shader->load(shader_path.str());
+            if(!shader->isLoaded()){
+                cout<<"ofxShaderGraph warning: shader "<<shader_name<<" failed to load from path "<<shader_path.str()<<endl;
+            }
+            node = new ofxBaseShaderNode(allocator, fbo_settings, name, shader);
+        }
+        //grab all of the new node's parameters
+        params.add(node->getParameterGroup());
+        //put it in the map from names to nodes
+        nodes.insert(pair<string, ofxBaseShaderNode*>(name, node));
+        //everything goes in root_names, to be removed when is appears as an input
+        root_names.insert(name);
+
+        cout<<"ofxShaderGraph: inserted node "<<name<<endl;
+
+        //set defaults
+        if(!x.setTo("defaults"))
+            continue;
+        if(!x.setToChild(0))
+            continue;
+        do{
+            string param_type = x.getName();
+            string param_name = x.getAttribute("name");
+            if(param_type=="float"){
+                float v = x.getFloatValue();
+                node->setParameter(param_name, v);
+            }else if(param_type=="int"){
+                int v = x.getIntValue();
+                node->setParameter(param_name, v);
+            }else{
+                cout<<"ofxShaderGraph warning: parameter type "<<param_type<<" unsupported"<<endl;
+            }
+        }while(x.setToSibling());
+    }
+
+
+    //second pass, fill in inputs for each node and remove all referenced nodes from root_names
+    for(unsigned long i=0; i<n; i++){
+        x.reset();
+        x.setToChild(i);
+        if(x.getName()!="node")
+            continue;
+        string name = x.getAttribute("name");
+        if(name=="")
+            continue;
+        ofxBaseShaderNode *node = nodes[name];
+
+        //set inputs
+        if(!x.setTo("inputs"))
+            continue;
+        if(!x.setToChild(0))
+            continue;
+        do{
+            string input_name = x.getValue();
+            try{
+                ofxBaseShaderNode *input = nodes.at(input_name);
+                node->inputs.push_back(input);
+                root_names.erase(input_name);
+                cout<<"ofxShaderGraph: connected node "<<input_name<<" to node "<<name<<endl;
+            }
+            catch(exception e){
+                cout << "ofxShaderGraph warning: node "<<name<<" lists input "<<input_name<<" which does not exist"<<endl;
+            }
+        }while(x.setToSibling());
+    }
+
+
+
+    //third pass, populate roots
+    for(auto i=root_names.begin(); i!=root_names.end(); i++){
+        string root_name = *i;
+        ofxBaseShaderNode *root_node = nodes.at(root_name);
+        roots.insert(root_node);
+    }
+
+}
+
+//set all nodes to dirty
+//call update on each node with no dependents
+void ofxShaderGraph::update(){
+    for(auto i = roots.begin(); i!=roots.end(); i++){
+        ofxBaseShaderNode *node = *i;
+        node->dirtyAll();
+    }
+    for(auto i = roots.begin(); i!=roots.end(); i++){
+        ofxBaseShaderNode *node = *i;
+        node->update();
+    }
+}
+
+//=============================================================================
+
 //always read the current state from ping
 //draw to pong when using begin() and end(), then automatically swap with ping
 //note that end() must be called after each self-draw for this to work
@@ -337,6 +879,15 @@ void ofApp::setup(){
 
     setupConstants();
 
+    forward_graph = ofxShaderGraph(fbo_allocator, fbo_params);
+    ofXml x;
+    x.load("../../src/graph/forward.xml");
+    forward_graph.buildFromXml(x);
+
+    params.add(forward_graph.params);
+
+    cout<<forward_graph.params<<endl;
+
     setupParameters();
 
     grad_proj(0,0) = 1;
@@ -412,7 +963,7 @@ void ofApp::setup(){
         camera.initGrabber(render_width, render_height);
     }
 
-    printf("setup complete\n");
+    cout<<"setup complete"<<endl;
 }
 
 void ofApp::close(){
@@ -939,6 +1490,12 @@ void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
     displacement(y_pyramid[0], yprime);
     multilateral_filter(dyn->getState(), yprime, yprime);
     derivativePost(t, dyn->getState(), yprime, lp->getState(), yprime);
+}
+
+void ofApp::mov(ofFbo &src, ofFbo &dest){
+    dest.begin();
+    src.draw(0,0,dest.getWidth(), dest.getHeight());
+    dest.end();
 }
 
 void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
