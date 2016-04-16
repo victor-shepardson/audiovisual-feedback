@@ -20,11 +20,14 @@ uint64_t ofxFboAllocator::keyFromDim(uint64_t w, uint64_t h, uint64_t c){
     w &= mask;
     h &= mask;
     c &= mask;
-    return h & (w<<24) & (c<<48);
+    return h | (w<<24) | (c<<48);
 }
 
 ofFbo* ofxFboAllocator::allocate(ofFbo::Settings s){
     uint64_t k = keyFromSettings(s);
+
+    //cout<<"ofxFboAllocator: allocating ("<<s.width<<"x"<<s.height<<"x"<<s.numColorbuffers<<") key = "<<k<<endl;
+
     ofxFboAllocatorBin &bin = bins[k];
     ofFbo * ret;
     if(bin.available.size()){
@@ -33,6 +36,7 @@ ofFbo* ofxFboAllocator::allocate(ofFbo::Settings s){
         bin.available.erase(i);
     }
     else{
+        cout<<"ofxFboAllocator: making new ("<<s.width<<"x"<<s.height<<"x"<<s.numColorbuffers<<") fbo with key = "<<k<<endl;
         ret = new ofFbo();
         ret->allocate(s);
     }
@@ -46,6 +50,9 @@ void ofxFboAllocator::release(ofFbo *fbo){
         return;
     }
     uint64_t k = keyFromFbo(fbo);
+
+    //cout<<"ofxFboAllocator: releasing ("<<fbo->getWidth()<<"x"<<fbo->getHeight()<<"x"<<fbo->getNumTextures()<<") key = "<<k<<endl;
+
     ofxFboAllocatorBin &bin = bins[k];
     auto i = bin.unavailable.find(fbo);
     if(i == bin.unavailable.end()){
@@ -62,6 +69,7 @@ ofxBaseShaderNode::ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, stri
     allocator = a;
     settings = s;
     shader = sh;
+    num_dependents = 0;
     node_count++;
     output = NULL;
     hasSizeParameter = false;
@@ -78,9 +86,6 @@ ofxBaseShaderNode::ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, stri
         setupParameters();
 }
 
-//note that extraneous whitespace is not supported; uniforms must be declared as:
-//uniform <type> <name>;
-//with exactly one space between each token, each on a separate line.
 void ofxBaseShaderNode::setupParameters(){
     params.setName(name);
 
@@ -90,7 +95,9 @@ void ofxBaseShaderNode::setupParameters(){
 
     vector<string> src_lines = ofSplitString(src, "\n");
     for(auto i = src_lines.begin(); i!=src_lines.end(); i++){
-        vector<string> tokens = ofSplitString(*i, " ");
+        string line = *i;
+        ofStringReplace(line, "\t", " ");
+        vector<string> tokens = ofSplitString(*i, " ", true);
         if(tokens.size() < 3)
             continue;
         string keyword = tokens[0];
@@ -99,6 +106,7 @@ void ofxBaseShaderNode::setupParameters(){
         if(keyword=="uniform"){
             //skip special parameters which are handled explicitly in draw()
             if(param_name == "size" && param_type == "ivec2"){
+                hasSizeParameter = true;
                 cout<<name<<": special uniform \"size\" detected"<<endl;
                 continue;
             }
@@ -155,12 +163,6 @@ void ofxBaseShaderNode::setupParameter(string param_type, string param_name){
         g.setName(param_name);
         for(uint32_t i = 0; i<dim; i++){
             int initial = 0;
-            //automatically set size to output dimensions if it is an ivec2
-            //not ideal to expose the size parameter, which should not be modified
-            //could instead leave it out of parameter group, set a flag indicating its presence,
-            //and explicitly set it from draw():
-            if(param_name=="size" && isIntegral && dim==2)
-                hasSizeParameter = true;
             /*if(param_name=="size" && isIntegral && dim==2)
                 if(i)
                     initial=settings.height;
@@ -168,6 +170,10 @@ void ofxBaseShaderNode::setupParameter(string param_type, string param_name){
                     initial=settings.width;*/
             stringstream ss;
             ss<<i;
+            if(isIntegral)
+                ss<<"i";
+            else
+                ss<<"f";
             string elem_name = ss.str();
             if(isIntegral){
                 g.add(ofParameter<int>().set(elem_name, initial));
@@ -183,20 +189,27 @@ void ofxBaseShaderNode::update(){
     //if not dirty, nothing to do
     if(!getDirty())
         return;
-    //first, make sure all dependencies are up to date
-    for(auto i = inputs.begin(); i<inputs.end(); i++){
+
+    //cout<<"drawing node "<<name<<endl;
+
+    //first, recursively make sure all dependencies are up to date
+    for(auto i = inputs.begin(); i!=inputs.end(); i++){
         ofxBaseShaderNode *node = *i;
-        if(node->getDirty())
+        //if(node->getDirty())
             node->update();
     }
     //get a buffer and draw to it
-    if(!output)
+    if(!output){
         requestBuffer();
+    }
     draw();
     setDirty(false);
 
+    //now that we've drawn, dependents can start to draw, so set the counter
+    dependent_count = num_dependents;
+
     //update inputs so they know when to free resources
-    for(auto i = inputs.begin(); i<inputs.end(); i++){
+    for(auto i = inputs.begin(); i!=inputs.end(); i++){
         ofxBaseShaderNode *node = *i;
         node->decrementDependents();
     }
@@ -204,6 +217,7 @@ void ofxBaseShaderNode::update(){
 
 //request from the allocator an appropriate fbo to draw to
 void ofxBaseShaderNode::requestBuffer(){
+    //cout<<"node "<<name<<" requesting buffer"<<endl;
     if(output)
         cout<<"ofxBaseShaderNode warning: requesting new buffer without releasing old one"<<endl;
     output = allocator->allocate(settings);
@@ -216,7 +230,7 @@ void ofxBaseShaderNode::requestBuffer(){
 
 //release output fbo to the allocator
 void ofxBaseShaderNode::releaseBuffer(){
-    if(output)
+    //if(output)
         allocator->release(output);
     output = NULL;
 }
@@ -229,13 +243,13 @@ void ofxBaseShaderNode::setDirty(bool b){
 }
 
 //recursively dirty the whole graph
-void ofxBaseShaderNode::dirtyAll(){
-    for(auto i = inputs.begin(); i<inputs.end(); i++){
+/*void ofxBaseShaderNode::dirtyAll(){
+    for(auto i = inputs.begin(); i!=inputs.end(); i++){
         ofxBaseShaderNode *node = *i;
         node->dirtyAll();
     }
     setDirty(true);
-}
+}*/
 
 uint32_t ofxBaseShaderNode::getNumOutputTextures(){
     return settings.numColorbuffers;
@@ -255,6 +269,8 @@ ofParameterGroup& ofxBaseShaderNode::getParameterGroup(){
     return params;
 }
 
+//note that this gets a Parameter group with ofParameter elements indexed "0", "1", ...
+//should maybe have a name for that
 ofParameterGroup& ofxBaseShaderNode::getParameter(string path){
     vector<string> tokens = ofSplitString(path, "/", true);
     ofParameterGroup* g = &params;
@@ -271,6 +287,23 @@ ofParameterGroup& ofxBaseShaderNode::getParameter(string path){
     }
     return *g;
 }
+
+/*template<typename T>
+void ofxBaseShaderNode::setParameterAlias(string path, ofParameter<T>& mom){
+    //cout<<"setParameterAlias: "<<path<<", "<<mom<<endl;
+    try{
+        vector<string> tokens = ofSplitString(path, "/", true);
+        if(tokens.size()<2)
+            throw exception();
+        string elem = tokens.back();
+        tokens.pop_back();
+        ofParameter<T> &p = getParameter(ofJoinString(tokens, "/")).get<T>(elem);
+        p.makeReferenceTo(mom);
+    }
+    catch(exception e){
+        cout<<"warning: set alias failed, bad parameter path "<<path<<endl;
+    }
+}*/
 
 void ofxBaseShaderNode::setParameter(string path, float v){
     try{
@@ -295,6 +328,7 @@ void ofxBaseShaderNode::setParameter(string path, int v){
         cout<<"warning: bad parameter path "<<path<<endl;
     }
 }
+
 /*bool ofxBaseShaderNode::verifyInputShapes(){
     bool b = true;
     for(auto i = inputs.begin(); i<input.end(); i++){
@@ -306,6 +340,7 @@ void ofxBaseShaderNode::setParameter(string path, int v){
 //when no more dependents, release resources
 void ofxBaseShaderNode::decrementDependents(){
     dependent_count--;
+    //cout<<"node "<<name<<" dependents = "<<dependent_count<<endl;
     if(dependent_count==0)
         releaseBuffer();
 }
@@ -315,42 +350,58 @@ void ofxBaseShaderNode::decrementDependents(){
 //assumes shader->begin() has been called already
 void ofxBaseShaderNode::setShaderParam(ofParameterGroup &g){
     size_t dim = g.size();
-    string type = g.getType(0);
+
+    //need to infer the uniform type from size of, and types in, this group
+    //unfortunately g.getType(0) is weird and compiler dependent, so this.
+    //weep for me, weep for c++
+    string type = "";
+    if(g.contains("0i"))
+        type = "int";
+    else if(g.contains("0f"))
+        type = "float";
+
     string param_name = g.getName();
-    if(type=="float")
+
+    // cout<<"node "<<name<<" setting "<<type<<" "<<dim<<" uniform "<<param_name<<endl;
+
+    if(type=="float"){
+        // cout<<g.getFloat("0f")<<endl;
         switch(dim){
             case 1:
-                shader->setUniform1f(name, g.getFloat("0"));
+                shader->setUniform1f(param_name, g.getFloat("0f"));
                 break;
             case 2:
-                shader->setUniform2f(name, g.getFloat("0"), g.getFloat("1"));
+                shader->setUniform2f(param_name, g.getFloat("0f"), g.getFloat("1f"));
                 break;
             case 3:
-                shader->setUniform3f(name, g.getFloat("0"), g.getFloat("1"), g.getFloat("2"));
+                shader->setUniform3f(param_name, g.getFloat("0f"), g.getFloat("1f"), g.getFloat("2f"));
                 break;
             case 4:
-                shader->setUniform4f(name, g.getFloat("0"), g.getFloat("1"), g.getFloat("2"), g.getFloat("3"));
+                shader->setUniform4f(param_name, g.getFloat("0f"), g.getFloat("1f"), g.getFloat("2f"), g.getFloat("3f"));
         }
-    else if(type=="int")
+    }
+    else if(type=="int"){
         switch(dim){
             case 1:
-                shader->setUniform1i(name, g.getInt("0"));
+                shader->setUniform1i(param_name, g.getInt("0i"));
                 break;
             case 2:
-                shader->setUniform2i(name, g.getInt("0"), g.getInt("1"));
+                shader->setUniform2i(param_name, g.getInt("0i"), g.getInt("1i"));
                 break;
             case 3:
-                shader->setUniform3i(name, g.getInt("0"), g.getInt("1"), g.getInt("2"));
+                shader->setUniform3i(param_name, g.getInt("0i"), g.getInt("1i"), g.getInt("2i"));
                 break;
             case 4:
-                shader->setUniform4i(name, g.getInt("0"), g.getInt("1"), g.getInt("2"), g.getInt("3"));
+                shader->setUniform4i(param_name, g.getInt("0i"), g.getInt("1i"), g.getInt("2i"), g.getInt("3i"));
         }
+    }
 }
 
 void ofxBaseShaderNode::draw(){
     if(!shader || !output)
         return;
-    uint32_t w = output->getWidth(), h = output->getHeight();
+    //cout<<"node "<<name<<" drawing"<<endl;
+    int w = output->getWidth(), h = output->getHeight();
     shader->begin();
     //loop over params and bind to uniforms
     for(auto i = params.begin(); i!=params.end(); i++){
@@ -361,7 +412,8 @@ void ofxBaseShaderNode::draw(){
     }
     //set size parameter
     if(hasSizeParameter){
-        shader->setUniform2i("size", settings.width, settings.height);
+         // cout<<"node "<<name<<": autosetting size parameter to "<<w<<", "<<h<<endl;
+        shader->setUniform2i("size", w, h);
     }
     //loop over inputs, then over textures and bind to uniforms
     size_t tex_count = 0;
@@ -370,6 +422,7 @@ void ofxBaseShaderNode::draw(){
         ofxBaseShaderNode *input_node = *i;
         //loop over textures in each input
         for(size_t j=0; j<input_node->getNumOutputTextures(); j++){
+            //cout<<"node "<<name<<": setting texture input "<<tex_count<<" from texture "<<j<<" of "<<(input_node->name)<<endl;
             ofTexture &tex = input_node->output->getTexture(j);
             shader->setUniformTexture(param_name, tex, tex_count);
             tex_count++;            
@@ -380,9 +433,7 @@ void ofxBaseShaderNode::draw(){
     ofDrawRectangle(0,0,w,h);
     output->end();
     shader->end();
-    return;
 }
-
 
 //override getDirty() to always return false
 bool ofxConstantShaderNode::getDirty(){
@@ -403,26 +454,29 @@ ofxShaderGraph::ofxShaderGraph(ofxFboAllocator *a, ofFbo::Settings s){
     fbo_settings = s;
 }
 
+//unsafe
+ofFbo& ofxShaderGraph::getFbo(string s){
+    ofxBaseShaderNode *node = nodes.at(s);
+    return *(node->output);
+}
+
+void ofxShaderGraph::swapFbos(string a, string b){
+    ofxBaseShaderNode *a_node = nodes.at(a);
+    ofxBaseShaderNode *b_node = nodes.at(b);
+    ofFbo *temp = a_node->output;
+    a_node->output = b_node->output;
+    b_node->output = temp;
+}
+
+/*template<typename T>
+//void ofxShaderGraph::forwardParameter(const void *alias_param, T val){
+void ofxShaderGraph::forwardParameter(T &val){
+    //get name of alias param
+    //look up name(s) of aliased param(s)
+    //set aliased param(s) with value of alias param
+}*/
+
 void ofxShaderGraph::buildFromXml(ofXml x){
-    //each top-level element in x is a node with:
-        // name
-        // shader path
-        // names of inputs
-        // any default parameter values
-
-    //<graph>
-    //  <node name="node00" shader="shader00">
-    //      <inputs>
-    //          <input>node01</input>
-    //          <input>node02</input>
-    //      </inputs>
-    //      <defaults>
-    //          <float name="dir/0">1</float>
-    //      </defaults>
-    //  </node>
-    // ...
-    //</graph>
-
     unordered_set<string> root_names;
 
     x.reset();
@@ -430,7 +484,33 @@ void ofxShaderGraph::buildFromXml(ofXml x){
 
     params.setName(x.getName());
 
-    //first pass, create all nodes and set defaults
+    //create alias parameters
+   /* if(x.setTo("aliases") && x.setToChild(0)){
+        aliases.setName("aliases");
+        do{
+            string type = x.getName();
+            string name = x.getAttribute("name");
+            if(name=="")
+                continue;
+            if(type=="int"){
+                const int init = x.getIntValue();
+                ofParameter<int> p(name, init);
+                p.addListener(this, &ofxShaderGraph::forwardParameter<int>);
+                aliases.add(p);
+            }
+            else if(type=="float"){
+                const float init = x.getFloatValue();
+                ofParameter<float> p(name, init);
+                p.addListener(this, &ofxShaderGraph::forwardParameter<float>);
+                aliases.add(p);
+            }else{
+                cout<<"ofxShaderGraph warning: type "<<type<<" of alias parameter "<<name<<" not supported"<<endl;
+            }
+        }while(x.setToSibling());
+        params.add(aliases);
+    }*/
+
+    //first pass, create all nodes and set defaults+aliases
     for(unsigned long i=0; i<n; i++){
         x.reset();
         x.setToChild(i);
@@ -441,11 +521,18 @@ void ofxShaderGraph::buildFromXml(ofXml x){
             cout<<"ofxShaderGraph warning: anonymous node in XML"<<endl;
             continue;
         }
-        string shader_name = x.getAttribute("shader");
         ofxBaseShaderNode *node;
+        ofFbo::Settings node_fbo_settings = fbo_settings;
+        if(x.setTo("scale")){
+            float scale = x.getFloatValue();
+            node_fbo_settings.width*=scale;
+            node_fbo_settings.height*=scale;
+            x.setToParent();
+        }
+        string shader_name = x.getAttribute("shader");
         if(shader_name == ""){
             //shaderless node
-            node = new ofxConstantShaderNode(allocator, fbo_settings, name);
+            node = new ofxConstantShaderNode(allocator, node_fbo_settings, name);
         }
         else{
             ofShader *shader = new ofShader();
@@ -455,7 +542,10 @@ void ofxShaderGraph::buildFromXml(ofXml x){
             if(!shader->isLoaded()){
                 cout<<"ofxShaderGraph warning: shader "<<shader_name<<" failed to load from path "<<shader_path.str()<<endl;
             }
-            node = new ofxBaseShaderNode(allocator, fbo_settings, name, shader);
+            else{
+                cout<<"ofxShaderGraph: loaded shader "<<shader_name<<endl;
+            }
+            node = new ofxBaseShaderNode(allocator, node_fbo_settings, name, shader);
         }
         //grab all of the new node's parameters
         params.add(node->getParameterGroup());
@@ -467,25 +557,44 @@ void ofxShaderGraph::buildFromXml(ofXml x){
         cout<<"ofxShaderGraph: inserted node "<<name<<endl;
 
         //set defaults
-        if(!x.setTo("defaults"))
-            continue;
-        if(!x.setToChild(0))
-            continue;
-        do{
-            string param_type = x.getName();
-            string param_name = x.getAttribute("name");
-            if(param_type=="float"){
-                float v = x.getFloatValue();
-                node->setParameter(param_name, v);
-            }else if(param_type=="int"){
-                int v = x.getIntValue();
-                node->setParameter(param_name, v);
-            }else{
-                cout<<"ofxShaderGraph warning: parameter type "<<param_type<<" unsupported"<<endl;
-            }
-        }while(x.setToSibling());
-    }
+        if(x.setTo("defaults") && x.setToChild(0)){
+            do{
+                string param_type = x.getName();
+                string param_name = x.getAttribute("name");
+                if(param_type=="float"){
+                    float v = x.getFloatValue();
+                    node->setParameter(param_name, v);
+                }else if(param_type=="int"){
+                    int v = x.getIntValue();
+                    node->setParameter(param_name, v);
+                }else{
+                    cout<<"ofxShaderGraph warning: parameter type "<<param_type<<" unsupported"<<endl;
+                }
+            }while(x.setToSibling());
+            x.setToParent();
+            x.setToParent();
+        }
 
+        //set aliases
+        /*if(x.setTo("aliases") && x.setToChild(0)){
+            do{
+                string param_type = x.getName();
+                string param_name = x.getAttribute("name");
+                string alias_name = x.getValue();
+                if(param_type=="float"){
+                    auto alias_param = aliases.getFloat(alias_name);
+                    node->setParameterAlias(param_name, alias_param);
+                }else if(param_type=="int"){
+                    auto alias_param = aliases.getInt(alias_name);
+                    node->setParameterAlias(param_name, alias_param);
+                }else{
+                    cout<<"ofxShaderGraph warning: aliased parameter type "<<param_type<<" unsupported"<<endl;
+                }
+            }while(x.setToSibling());
+            x.setToParent();
+            x.setToParent();
+        }*/
+    }
 
     //second pass, fill in inputs for each node and remove all referenced nodes from root_names
     for(unsigned long i=0; i<n; i++){
@@ -508,6 +617,7 @@ void ofxShaderGraph::buildFromXml(ofXml x){
             try{
                 ofxBaseShaderNode *input = nodes.at(input_name);
                 node->inputs.push_back(input);
+                input->num_dependents++;
                 root_names.erase(input_name);
                 cout<<"ofxShaderGraph: connected node "<<input_name<<" to node "<<name<<endl;
             }
@@ -517,13 +627,12 @@ void ofxShaderGraph::buildFromXml(ofXml x){
         }while(x.setToSibling());
     }
 
-
-
-    //third pass, populate roots
+    //populate roots
     for(auto i=root_names.begin(); i!=root_names.end(); i++){
         string root_name = *i;
         ofxBaseShaderNode *root_node = nodes.at(root_name);
         roots.insert(root_node);
+        cout<<"ofxShaderGraph: node "<<root_name<<" is a root"<<endl;
     }
 
 }
@@ -531,9 +640,13 @@ void ofxShaderGraph::buildFromXml(ofXml x){
 //set all nodes to dirty
 //call update on each node with no dependents
 void ofxShaderGraph::update(){
-    for(auto i = roots.begin(); i!=roots.end(); i++){
+    /*for(auto i = roots.begin(); i!=roots.end(); i++){
         ofxBaseShaderNode *node = *i;
         node->dirtyAll();
+    }*/
+    for(auto i = nodes.begin(); i!=nodes.end(); i++){
+        ofxBaseShaderNode *node = i->second;
+        node->setDirty(true);
     }
     for(auto i = roots.begin(); i!=roots.end(); i++){
         ofxBaseShaderNode *node = *i;
@@ -548,119 +661,119 @@ void ofxShaderGraph::update(){
 //note that end() must be called after each self-draw for this to work
 //if using blending, draw in place to ping using beginInPlace() and endInPlace()
 //might ultimately be cleaner to just avoid blending, emulating with shaders
-ofxPingPongFbo::ofxPingPongFbo(){
-    ping = new ofFbo();
-    pong = new ofFbo();
-    aux = new ofFbo();
-}
-/*ofxPingPongFbo ofxPingPongFbo::copy(){
-    ofxPingPongFbo daughter;
-    daughter.allocate(settings);
-    return daughter;
-}*/
-ofxPingPongFbo::ofxPingPongFbo(const ofxPingPongFbo &parent){
-    ping = parent.ping;
-    pong = parent.pong;
-    aux = parent.aux;
-    settings = parent.settings;
-}
-ofxPingPongFbo& ofxPingPongFbo::operator=(const ofxPingPongFbo &parent){
-    ping = parent.ping;
-    pong = parent.pong;
-    aux = parent.aux;
-    settings = parent.settings;
-    return *this;
-}
-void ofxPingPongFbo::destroy(){
-    delete ping;
-    delete pong;
-    delete aux;
-}
-//lazy allocation so that pong+aux won't hog memory when unused
-//broken for pong, why?
-void ofxPingPongFbo::allocate(ofFbo::Settings s){
-    ping->allocate(s);
-    pong->allocate(s);
-    aux->allocate(s);
-    settings = s;
-}
-void ofxPingPongFbo::swap(){
-    ofFbo *temp = ping;
-    ping = pong;
-    pong = temp;
-}
-void ofxPingPongFbo::save(){
-    //if(!aux->isAllocated()) aux->allocate(settings);
-    aux->begin();
-    ping->draw(0,0);
-    aux->end();
-}
-void ofxPingPongFbo::restore(){
-    ofFbo *temp = ping;
-    ping = aux;
-    aux = temp;
-}
-void ofxPingPongFbo::draw(int x,int y,int w,int h){
-    ping->draw(x,y,w,h);
-}
-ofTexture& ofxPingPongFbo::getTextureReference(){
-    return ping->getTextureReference();
-}
-ofTexture& ofxPingPongFbo::getTextureReference(int i){
-    return ping->getTextureReference(i);
-}
-int ofxPingPongFbo::getWidth(){
-    return ping->getWidth();
-}
-int ofxPingPongFbo::getHeight(){
-    return ping->getHeight();
-}
-void ofxPingPongFbo::begin(){
-    if(!pong->isAllocated()) pong->allocate(settings);
-    pong->begin();
-}
-void ofxPingPongFbo::end(){
-    pong->end();
-    swap();
-}
-void ofxPingPongFbo::beginInPlace(){
-    ping->begin();
-}
-void ofxPingPongFbo::endInPlace(){
-    ping->end();
-}
-void ofxPingPongFbo::readToPixels(ofPixels & pixels, int attachmentPoint = 0) {
-    //pixels.allocate(ping->getWidth(), ping->getHeight(), OF_PIXELS_RGB);
-    //reader.readToPixels(*ping, pixels);
-    ping->readToPixels(pixels, attachmentPoint);
-}
-void ofxPingPongFbo::readToPixels(ofFloatPixels & pixels, int attachmentPoint = 0) {
-    //reader.readToFloatPixels(*ping, pixels);
-    ping->readToPixels(pixels, attachmentPoint);
-}
-int ofxPingPongFbo::getNumTextures(){
-    return ping->getNumTextures();
-}
-// !!!
-// unsure if these will work with beginInPlace() and endInPlace()
-void ofxPingPongFbo::setActiveDrawBuffer(int i){
-    ping->setActiveDrawBuffer(i);
-    //pong->setActiveDrawBuffer(i);
-    //aux->setActiveDrawBuffer(i);
-}
-void ofxPingPongFbo::setActiveDrawBuffers(const vector<int>& i){
-    ping->setActiveDrawBuffers(i);
-    //pong->setActiveDrawBuffers(i);
-    //aux->setActiveDrawBuffers(i);
-}
-void ofxPingPongFbo::activateAllDrawBuffers(){
-    ping->activateAllDrawBuffers();
-    //pong->activateAllDrawBuffers();
-    //aux->activateAllDrawBuffers();
-}
+// ofxPingPongFbo::ofxPingPongFbo(){
+//     ping = new ofFbo();
+//     pong = new ofFbo();
+//     aux = new ofFbo();
+// }
+// /*ofxPingPongFbo ofxPingPongFbo::copy(){
+//     ofxPingPongFbo daughter;
+//     daughter.allocate(settings);
+//     return daughter;
+// }*/
+// ofxPingPongFbo::ofxPingPongFbo(const ofxPingPongFbo &parent){
+//     ping = parent.ping;
+//     pong = parent.pong;
+//     aux = parent.aux;
+//     settings = parent.settings;
+// }
+// ofxPingPongFbo& ofxPingPongFbo::operator=(const ofxPingPongFbo &parent){
+//     ping = parent.ping;
+//     pong = parent.pong;
+//     aux = parent.aux;
+//     settings = parent.settings;
+//     return *this;
+// }
+// void ofxPingPongFbo::destroy(){
+//     delete ping;
+//     delete pong;
+//     delete aux;
+// }
+// //lazy allocation so that pong+aux won't hog memory when unused
+// //broken for pong, why?
+// void ofxPingPongFbo::allocate(ofFbo::Settings s){
+//     ping->allocate(s);
+//     pong->allocate(s);
+//     aux->allocate(s);
+//     settings = s;
+// }
+// void ofxPingPongFbo::swap(){
+//     ofFbo *temp = ping;
+//     ping = pong;
+//     pong = temp;
+// }
+// void ofxPingPongFbo::save(){
+//     //if(!aux->isAllocated()) aux->allocate(settings);
+//     aux->begin();
+//     ping->draw(0,0);
+//     aux->end();
+// }
+// void ofxPingPongFbo::restore(){
+//     ofFbo *temp = ping;
+//     ping = aux;
+//     aux = temp;
+// }
+// void ofxPingPongFbo::draw(int x,int y,int w,int h){
+//     ping->draw(x,y,w,h);
+// }
+// ofTexture& ofxPingPongFbo::getTextureReference(){
+//     return ping->getTextureReference();
+// }
+// ofTexture& ofxPingPongFbo::getTextureReference(int i){
+//     return ping->getTextureReference(i);
+// }
+// int ofxPingPongFbo::getWidth(){
+//     return ping->getWidth();
+// }
+// int ofxPingPongFbo::getHeight(){
+//     return ping->getHeight();
+// }
+// void ofxPingPongFbo::begin(){
+//     if(!pong->isAllocated()) pong->allocate(settings);
+//     pong->begin();
+// }
+// void ofxPingPongFbo::end(){
+//     pong->end();
+//     swap();
+// }
+// void ofxPingPongFbo::beginInPlace(){
+//     ping->begin();
+// }
+// void ofxPingPongFbo::endInPlace(){
+//     ping->end();
+// }
+// void ofxPingPongFbo::readToPixels(ofPixels & pixels, int attachmentPoint = 0) {
+//     //pixels.allocate(ping->getWidth(), ping->getHeight(), OF_PIXELS_RGB);
+//     //reader.readToPixels(*ping, pixels);
+//     ping->readToPixels(pixels, attachmentPoint);
+// }
+// void ofxPingPongFbo::readToPixels(ofFloatPixels & pixels, int attachmentPoint = 0) {
+//     //reader.readToFloatPixels(*ping, pixels);
+//     ping->readToPixels(pixels, attachmentPoint);
+// }
+// int ofxPingPongFbo::getNumTextures(){
+//     return ping->getNumTextures();
+// }
+// // !!!
+// // unsure if these will work with beginInPlace() and endInPlace()
+// void ofxPingPongFbo::setActiveDrawBuffer(int i){
+//     ping->setActiveDrawBuffer(i);
+//     //pong->setActiveDrawBuffer(i);
+//     //aux->setActiveDrawBuffer(i);
+// }
+// void ofxPingPongFbo::setActiveDrawBuffers(const vector<int>& i){
+//     ping->setActiveDrawBuffers(i);
+//     //pong->setActiveDrawBuffers(i);
+//     //aux->setActiveDrawBuffers(i);
+// }
+// void ofxPingPongFbo::activateAllDrawBuffers(){
+//     ping->activateAllDrawBuffers();
+//     //pong->activateAllDrawBuffers();
+//     //aux->activateAllDrawBuffers();
+// }
 
 //====================================================================
-
+/*
 template <class T>
 ofxDynamicalTexture<T>::ofxDynamicalTexture(T *p, void (T::*f)(float, ofxPingPongFbo&)){
     app = p;
@@ -791,7 +904,7 @@ void ofxDynamicalTexture<T>::update(float dt){
         cout<<"ofxDynamicalTexture error: attempt to update after "<<ticks<<" ticks and "<<tocks<<" tocks"<<endl;
     ticks=tocks=0;
 }
-
+*/
 //============================================================
 
 void ofApp::setupConstants()
@@ -868,55 +981,34 @@ void ofApp::setupParameters()
 
     //set up parameters which are not floats and/or have callbacks separately for now
 	params.add(seed.set("seed",0));
-	seed.addListener(this, &ofApp::initParams);
+	//seed.addListener(this, &ofApp::initParams);
+
+    params.add(forward_graph->params);
 
     //I don't really understand the role of ofxGui in managing ofParameters/ofParameterGroups, something to return to
     gui.setup(params);
 	sync.setup((ofParameterGroup&)gui.getParameter(),local_port,remote_host,remote_port);
 }
 
-void ofApp::setup(){
+void ofApp::setupGraph(){
 
-    setupConstants();
-
-    forward_graph = ofxShaderGraph(fbo_allocator, fbo_params);
+    forward_graph = new ofxShaderGraph(&fbo_allocator, fbo_params);
     ofXml x;
     x.load("../../src/graph/forward.xml");
-    forward_graph.buildFromXml(x);
+    forward_graph->buildFromXml(x);
+    /*integrator_graph = new ofxShaderGraph(&fbo_allocator, fbo_params);
+    x.load("../../src/graph/integrator.xml");
+    integrator_graph->buildFromXml(x);*/
 
-    params.add(forward_graph.params);
+}
 
-    cout<<forward_graph.params<<endl;
-
-    setupParameters();
-
-    grad_proj(0,0) = 1;
-    grad_proj(1,1) = 1;
-    grad_proj(2,2) = 1;
-    color_proj(0,0) = 1;
-    color_proj(1,1) = 1;
-    color_proj(2,2) = -1;
-
-    mute = true;
-
-    realtime = true;
-    use_camera = false;
-    recording = false;
-
-    ofSetVerticalSync(true); //does not appear to be working on windows w/ of 0.8.4
-
-    ofSetFullscreen(fullscreen);
-    ofSetWindowShape(window_width, window_height);
-
-    ofEnableDataPath();
+void ofApp::setupGL(){
 
     ofDisableArbTex();
     ofEnableBlendMode(OF_BLENDMODE_DISABLED);
     ofDisableDepthTest();
     ofDisableAntiAliasing();
     ofSetTextureWrap(GL_REPEAT, GL_REPEAT);
-
-    loadShaders();
 
     fbo_params = ofFbo::Settings(); //needs to come after the ofDisable* above
     fbo_params.width = realtime_width;
@@ -928,34 +1020,71 @@ void ofApp::setup(){
     fbo_params.wrapModeVertical = GL_REPEAT;
     fbo_params.numSamples = 0;
 
-    integrator = 0;
+    ofSetVerticalSync(true); //does not appear to be working on windows w/ of 0.8.4
+
+    ofSetFullscreen(fullscreen);
+    ofSetWindowShape(window_width, window_height);
+}
+
+void ofApp::setupGlobals(){
+    mute = true;
+
+    realtime = true;
+    use_camera = false;
+    recording = false;    
+
+    //integrator = 0;
 
     frame = 0;
 
+/*
     cycle_disp_mode = 0;
 
     disp_mode = 0;
     disp_scale = 0;
     disp_buf = 0;
-
-    //set the sequence of display modes to cycle through
+*/
+     //set the sequence of display modes to cycle through
     display_sequence.push_back(AVFBDM_Color);
-    display_sequence.push_back(AVFBDM_Monochrome);
+    //display_sequence.push_back(AVFBDM_Monochrome);
     display_sequence.push_back(AVFBDM_Agents);
     //display_sequence.push_back(AVFBDM_Displacement);
     display_sequence.push_back(AVFBDM_Filter);
+  
+}
 
-    allocateFbos();
-
-    fill(agent_fbo, ofFloatColor(0,0,0,1));
-    initRandom(dyn->getState(), 0);
-
+void ofApp::setupAudio(){
     int frames_to_keep = 48;
     vwt = new ofxVideoWaveTerrain(frames_to_keep, audio_sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
     ss.setDeviceID(audio_device);
     ss.setup(this, audio_channels, 0, audio_sample_rate, audio_buffer_size, 4);
+}
+
+void ofApp::setup(){
+    ofEnableDataPath();
+
+    setupConstants();
+
+    setupGlobals();
+
+    setupGL();
+
+    setupGraph();
+
+    setupParameters();
+
+    cout<<params<<endl;
+
+    //allocateFbos();
+
+    //fill(agent_fbo, ofFloatColor(0,0,0,1));
+
+    initRandom(forward_graph->getFbo("state00"), 0);
+    mov(forward_graph->getFbo("state00"), forward_graph->getFbo("lp00"));
+
+    setupAudio();
 
     if(use_camera){
         camera.setVerbose(true);
@@ -968,28 +1097,30 @@ void ofApp::setup(){
 
 void ofApp::close(){
     ss.close();
+    delete forward_graph;
+    delete vwt;
     if(audio_file_size>0)
         endRenderMode();
 }
 
-void ofApp::loadShaders(){
-    cout<<"loading shaders..."<<endl;
-    ofDirectory dir;
-    dir.listDir(ofToDataPath("../../src/shader/"));
-    for(int i=0; i<dir.size(); i++){
-        string name = dir.getName(i);
-        vector<string> tokens = ofSplitString(name, ".");
-        if(tokens.size()!=2 || !tokens[1].compare("frag"))
-            continue;
-        ofShader s;
-        s.load(ofToDataPath("../../src/shader/"+tokens[0]));
-        shaders.insert(pair<string, ofShader>(tokens[0],s));
-        cout<<"loaded shader "<<tokens[0]<<endl;
-    }
+// void ofApp::loadShaders(){
+//     cout<<"loading shaders..."<<endl;
+//     ofDirectory dir;
+//     dir.listDir(ofToDataPath("../../src/shader/"));
+//     for(int i=0; i<dir.size(); i++){
+//         string name = dir.getName(i);
+//         vector<string> tokens = ofSplitString(name, ".");
+//         if(tokens.size()!=2 || !tokens[1].compare("frag"))
+//             continue;
+//         ofShader s;
+//         s.load(ofToDataPath("../../src/shader/"+tokens[0]));
+//         shaders.insert(pair<string, ofShader>(tokens[0],s));
+//         cout<<"loaded shader "<<tokens[0]<<endl;
+//     }
 
-    cout<<"done loading shaders"<<endl;
-}
-
+//     cout<<"done loading shaders"<<endl;
+// }
+/*
 //only happens once, in setup()
 void ofApp::allocateFbos(){
 
@@ -1049,10 +1180,10 @@ void ofApp::reallocateFbos(){
     agent_fbo.allocate(agent_fbo_params);
 
 }
-
+*/
 //note that render_fbo, readback_fbo do not currently change size
 void ofApp::setResolution(int x, int y){
-    //for all to-be-resized buffers, either destroy or back up for later destruction
+/*    //for all to-be-resized buffers, either destroy or back up for later destruction
     ofxDynamicalTexture<ofApp> *dyn_old = dyn;
     ofxDynamicalTexture<ofApp> *lp_old = lp;
 
@@ -1085,8 +1216,9 @@ void ofApp::setResolution(int x, int y){
 
     resample(agent_fbo_old, agent_fbo);
     agent_fbo_old.destroy();
+    */
 }
-
+/*
 void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     //resample src to dest with truncated gaussian kernel
     float sf = float(src.getWidth())/dest.getWidth();
@@ -1096,10 +1228,7 @@ void ofApp::resample(ofxPingPongFbo &src, ofxPingPongFbo &dest){
         mov(src, dest);
         src.restore();
     }
-    else{ //upsample
-        /*mov(src, dest);
-        blur(dest, dest, 2./sf);
-    }*/
+    else{
         beginShader("resample");
         setShaderParam("src0", src.getTextureReference(0), 0);
         setShaderParam("dest_size", dest.getWidth(), dest.getHeight());
@@ -1120,11 +1249,7 @@ void ofApp::resampleToWindow(ofxPingPongFbo &src){
         src.draw(0,0,ww,wh);
         src.restore();
     }
-    else{ //upsample
- /*       mov(src, dest);
-        blur(dest, dest, 2./sf);
-    }
-*/
+    else{
         beginShader("resample");
         setShaderParam("src0", src.getTextureReference(0), 0);
         setShaderParam("dest_size", ww,wh);
@@ -1181,14 +1306,6 @@ void ofApp::edge_aware_filter(ofxPingPongFbo &src, ofxPingPongFbo &dest){
     endShader();
 }
 void ofApp::sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest){
-    /*ofPushStyle();
-    if(&dest!=&pos)
-        mov(pos,dest);
-    ofEnableBlendMode(OF_BLENDMODE_SUBTRACT);
-    dest.beginInPlace();
-    neg.draw(0,0,dest.getWidth(), dest.getHeight());
-    dest.endInPlace();
-    ofPopStyle();*/
     scale_add(1,pos,-1,neg,dest);
 }
 void ofApp::scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest){
@@ -1346,141 +1463,141 @@ void ofApp::filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
         blur(dest, dest, blur_post);
     }
 }
+*/
+// void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
+//     int w = src.getWidth();
+//     int h = src.getHeight();
 
-void ofApp::multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest){
-    int w = src.getWidth();
-    int h = src.getHeight();
+//     float blur_initial = params.getFloat("blur_initial");
+//     float blur_scale = params.getFloat("blur_scale");
+//     float lf_bleed = params.getFloat("lf_bleed");
 
-    float blur_initial = params.getFloat("blur_initial");
-    float blur_scale = params.getFloat("blur_scale");
-    float lf_bleed = params.getFloat("lf_bleed");
+//     //sub(y, f, yprime); //yprime as scratch
 
-    //sub(y, f, yprime); //yprime as scratch
+//     blur(src, y_pyramid[0], blur_initial);
+//    // mov(src, y_pyramid[0]);
 
-    blur(src, y_pyramid[0], blur_initial);
-   // mov(src, y_pyramid[0]);
+//     //compute pyramid + derivatives of y and accumulate to yprime
+//     //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
+//     for(int i=0; i<y_pyramid.size()-1; i++){
+//         //blur(y_pyramid[i], y_pyramid[i], blur_initial);
+//         blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
+//         //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
+//        // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
+//         //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
+//         //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
+//         //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
+//         scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
+//         mov(yprime_pyramid[i], y_pyramid[i+1]);
+//     }
+//     int scales_to_process = y_pyramid.size();
+//     if(discard_largest_scale) scales_to_process-=1;
+//     for(int i=scales_to_process-1; i>=0; i--){
+//         float scale = pow(scale_factor,i);
+//         gradients(y_pyramid[i]);
+//         int mod_idx = i;
+//         float mod = 0.;
+//         if(discard_largest_scale){
+//             mod_idx +=1;
+//             mod = 1.;
+//         }
+//         processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
+//     }
+//     //for(int i=0; i<scales_to_process; i++){
+//     //    if(!i){
+// //-------            mov(yprime_pyramid[0], dest);
+//     /*    }
+//         else{
+//             resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
+//             //float m = 1./(i+1);
+//             //mix(m, dest, y_pyramid[0], dest);
+//             blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
+//         }
+//     }*/
 
-    //compute pyramid + derivatives of y and accumulate to yprime
-    //float amt_blurred = 0; //keep track of accumulated blur to keep downsampling consistent
-    for(int i=0; i<y_pyramid.size()-1; i++){
-        //blur(y_pyramid[i], y_pyramid[i], blur_initial);
-        blur(y_pyramid[i], yprime_pyramid[i], scale_factor*blur_scale);
-        //float blur_amt = blur_scale;//max(0., blur_scale*scale_factor - amt_blurred);
-       // blur(y_pyramid[i], yprime_pyramid[i], blur_amt); //using yprime_pyramid[i] as scratch
-        //fill(yprime_pyramid[i], ofFloatColor(0,0,0,lf_bleed), OF_BLENDMODE_ALPHA);
-        //amt_blurred = (amt_blurred + blur_amt)/scale_factor; //divide by scale_factor since coordinate system gets scaled
-        //sub(y_pyramid[i], yprime_pyramid[i], y_pyramid[i]);
-        scale_add(1, y_pyramid[i], lf_bleed-1, yprime_pyramid[i], y_pyramid[i]);
-        mov(yprime_pyramid[i], y_pyramid[i+1]);
-    }
-    int scales_to_process = y_pyramid.size();
-    if(discard_largest_scale) scales_to_process-=1;
-    for(int i=scales_to_process-1; i>=0; i--){
-        float scale = pow(scale_factor,i);
-        gradients(y_pyramid[i]);
-        int mod_idx = i;
-        float mod = 0.;
-        if(discard_largest_scale){
-            mod_idx +=1;
-            mod = 1.;
-        }
-        processingAtScale(t, y_pyramid[i], yprime_pyramid[mod_idx], yprime_pyramid[i], scale, mod);
-    }
-    //for(int i=0; i<scales_to_process; i++){
-    //    if(!i){
-//-------            mov(yprime_pyramid[0], dest);
-    /*    }
-        else{
-            resample(yprime_pyramid[i], y_pyramid[0]); //using y_pyramid[0] as scratch
-            //float m = 1./(i+1);
-            //mix(m, dest, y_pyramid[0], dest);
-            blend(y_pyramid[0], dest, OF_BLENDMODE_ADD);
-        }
-    }*/
+//     /*shader_warp.begin();
+//     shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
+//     shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
+//     shader_warp.setUniform2i("size",w,h);
+//     dest.begin();
+//     ofDrawRectangle(0,0,w,h);
+//     dest.end();
+//     shader_warp.end();
+//     */
+//     beginShader("multi_warp");
+//     setShaderParam("src", src.getTextureReference(0), 0);
+//     for(int i=0; i<scales_to_process; i++){
+//         stringstream param_name;
+//         param_name<<"disp"<<i;
+//         setShaderParam(param_name.str(), yprime_pyramid[i].getTextureReference(0), 1+i);
+//     }
+//     setShaderParam("num_tex", scales_to_process);
+//     setShaderParam("size", w,h);
+//     dest.begin();
+//     ofDrawRectangle(0,0,w,h);
+//     dest.end();
+//     endShader();
+// }
 
-    /*shader_warp.begin();
-    shader_warp.setUniformTexture("src", src.getTextureReference(), 0);
-    shader_warp.setUniformTexture("disp", dest.getTextureReference(), 1);
-    shader_warp.setUniform2i("size",w,h);
-    dest.begin();
-    ofDrawRectangle(0,0,w,h);
-    dest.end();
-    shader_warp.end();
-    */
-    beginShader("multi_warp");
-    setShaderParam("src", src.getTextureReference(0), 0);
-    for(int i=0; i<scales_to_process; i++){
-        stringstream param_name;
-        param_name<<"disp"<<i;
-        setShaderParam(param_name.str(), yprime_pyramid[i].getTextureReference(0), 1+i);
-    }
-    setShaderParam("num_tex", scales_to_process);
-    setShaderParam("size", w,h);
-    dest.begin();
-    ofDrawRectangle(0,0,w,h);
-    dest.end();
-    endShader();
-}
+// void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
+//     int w = y.getWidth(), h = y.getHeight();
+//     beginShader("multiscale");
+//     setShaderParam("t", t);
+//     setShaderParam("y", y.getTextureReference(0), 0);
+//     setShaderParam("xgrad", y.getTextureReference(1), 1);
+//     setShaderParam("ygrad", y.getTextureReference(2), 2);
+//     setShaderParam("modulation", m.getTextureReference(0), 3);
+//     setShaderParam("modulate", mod);
+//     setShaderParam("size", w, h);
+//     setShaderParam("scale", scale);
+//     setShaderParam("disp_exponent");
+//     setShaderParam("warp_color");
+//     setShaderParam("warp_grad");
+//     //setShaderParam("color_proj", color_proj);
+//     //setShaderParam("grad_proj", grad_proj);
+//     yprime.begin();
+//     ofDrawRectangle(0, 0, w, h);
+//     yprime.end();
+//     endShader();
+// }
 
-void ofApp::processingAtScale(float t, ofxPingPongFbo &y, ofxPingPongFbo &m, ofxPingPongFbo &yprime, float scale, float mod){
-    int w = y.getWidth(), h = y.getHeight();
-    beginShader("multiscale");
-    setShaderParam("t", t);
-    setShaderParam("y", y.getTextureReference(0), 0);
-    setShaderParam("xgrad", y.getTextureReference(1), 1);
-    setShaderParam("ygrad", y.getTextureReference(2), 2);
-    setShaderParam("modulation", m.getTextureReference(0), 3);
-    setShaderParam("modulate", mod);
-    setShaderParam("size", w, h);
-    setShaderParam("scale", scale);
-    setShaderParam("disp_exponent");
-    setShaderParam("warp_color");
-    setShaderParam("warp_grad");
-    //setShaderParam("color_proj", color_proj);
-    //setShaderParam("grad_proj", grad_proj);
-    yprime.begin();
-    ofDrawRectangle(0, 0, w, h);
-    yprime.end();
-    endShader();
-}
+// void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
+//     int w = y.getWidth(), h = y.getHeight();
 
-void ofApp::derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime){
-    int w = y.getWidth(), h = y.getHeight();
+//     beginShader("post_derivative");
+//     setShaderParam("t", t);
+//     setShaderParam("y", y.getTextureReference(0), 0);
+//     setShaderParam("new_y", new_y.getTextureReference(0), 1);
+//     setShaderParam("lp", lp.getTextureReference(0), 2);
+//     setShaderParam("agents", agent_fbo.getTextureReference(0), 3);
+//     setShaderParam("agradx", agent_fbo.getTextureReference(1), 4);
+//     setShaderParam("agrady", agent_fbo.getTextureReference(2), 5);
+//     setShaderParam("size", w, h);
+//     setShaderParam("warp_agent");
+//     setShaderParam("agent_drive");
+//     setShaderParam("drive");
+//     setShaderParam("time_scale");
+//     setShaderParam("rot");
+//     setShaderParam("bound_clip");
+//     setShaderParam("num_scales", num_scales);
+//     setShaderParam("saturate");
+//     setShaderParam("bias");
+//     setShaderParam("gen");
+//     setShaderParam("compress");
+//     setShaderParam("zoom");
+//     setShaderParam("suck");
+//     setShaderParam("swirl");
+//     setShaderParam("xdrift");
+//     setShaderParam("ydrift");
+//     setShaderParam("mirror_amt");
+//     setShaderParam("mirror_shape");
 
-    beginShader("post_derivative");
-    setShaderParam("t", t);
-    setShaderParam("y", y.getTextureReference(0), 0);
-    setShaderParam("new_y", new_y.getTextureReference(0), 1);
-    setShaderParam("lp", lp.getTextureReference(0), 2);
-    setShaderParam("agents", agent_fbo.getTextureReference(0), 3);
-    setShaderParam("agradx", agent_fbo.getTextureReference(1), 4);
-    setShaderParam("agrady", agent_fbo.getTextureReference(2), 5);
-    setShaderParam("size", w, h);
-    setShaderParam("warp_agent");
-    setShaderParam("agent_drive");
-    setShaderParam("drive");
-    setShaderParam("time_scale");
-    setShaderParam("rot");
-    setShaderParam("bound_clip");
-    setShaderParam("num_scales", num_scales);
-    setShaderParam("saturate");
-    setShaderParam("bias");
-    setShaderParam("gen");
-    setShaderParam("compress");
-    setShaderParam("zoom");
-    setShaderParam("suck");
-    setShaderParam("swirl");
-    setShaderParam("xdrift");
-    setShaderParam("ydrift");
-    setShaderParam("mirror_amt");
-    setShaderParam("mirror_shape");
-
-    new_yprime.begin();
-    ofDrawRectangle(0,0,w,h);
-    new_yprime.end();
-    endShader();
-}
-
+//     new_yprime.begin();
+//     ofDrawRectangle(0,0,w,h);
+//     new_yprime.end();
+//     endShader();
+// }
+/*
 //the meat: compute y' as f(t, y) and store in yprime
 void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
     //multiscaleProcessing(t, dyn->getState(), yprime);
@@ -1491,21 +1608,15 @@ void ofApp::dynDerivative(float t, ofxPingPongFbo &yprime){
     multilateral_filter(dyn->getState(), yprime, yprime);
     derivativePost(t, dyn->getState(), yprime, lp->getState(), yprime);
 }
-
+*/
 void ofApp::mov(ofFbo &src, ofFbo &dest){
     dest.begin();
     src.draw(0,0,dest.getWidth(), dest.getHeight());
     dest.end();
 }
 
-void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
-    /*float epsilon = 1 - pow(2, -1./lp_frames);
-    float damp = 1-pow(.001,lp_frames+1);
-    blur(y, yprime, lp_radius);
-    mix(epsilon, yprime, dyn->y, yprime);
-    scale_add(damp, yprime, -1, y, yprime);*/
-
-    float time_scale = params.getFloat("time_scale");
+/*void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
+      float time_scale = params.getFloat("time_scale");
     float lp_frames = params.getFloat("lp_frames");
     int w = yprime.getWidth(), h = yprime.getHeight();
     float alpha = pow(2, -lp_frames);
@@ -1524,7 +1635,7 @@ void ofApp::lpDerivative(float t, ofxPingPongFbo &yprime){
     yprime.endInPlace();
     endShader();
 }
-
+*/
 void ofApp::update(){
     sync.update();
     if(use_camera) camera.update();
@@ -1540,7 +1651,13 @@ void ofApp::draw(){
     double cur_frame_rate = frame_rate;
     if(realtime) cur_frame_rate = ofGetFrameRate();
 
-    ofxPingPongFbo &y_fbo = dyn->getState();
+    //ofxPingPongFbo &y_fbo = dyn->getState();
+
+    //get input nodes
+    ofFbo &y_fbo = forward_graph->getFbo("state00");
+    ofFbo &lp_fbo = forward_graph->getFbo("lp00");
+    ofFbo &agent_fbo = forward_graph->getFbo("agents");
+
     int w = y_fbo.getWidth();
     int h = y_fbo.getHeight();
 
@@ -1554,16 +1671,30 @@ void ofApp::draw(){
 
     //draw agent path
     int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
-    float alpha = 1 - pow(2, -1./(fade_time*cur_frame_rate));
-    fill(agent_fbo, ofFloatColor(.5,.5,.5,alpha));
-    agent_fbo.beginInPlace();
+    //float alpha = 1 - pow(2, -1./(fade_time*cur_frame_rate));
+    //fill(agent_fbo, ofFloatColor(.5,.5,.5,alpha));
+    agent_fbo.begin();//InPlace();
     vwt->draw(0, 0, aw, ah);
-    agent_fbo.endInPlace();
-    blur(agent_fbo, agent_fbo, path_blur);
-    gradients(agent_fbo);
+    agent_fbo.end();//InPlace();
+    //blur(agent_fbo, agent_fbo, path_blur);
+    //gradients(agent_fbo);
 
     //main video process
+    forward_graph->update();
+
+    //feedback
+    forward_graph->swapFbos("new00", "state00");
+    forward_graph->swapFbos("lp00", "lpnew00");
+
+    //get readback fbo
+    ofFbo &readback_fbo = forward_graph->getFbo("vblur00");
+
+    //feedback
+    //mov(y_new, y_fbo);
+    //mov(lp_new, lp_fbo);
+
     //integrator = 0 for euler, 1 for rk4
+    /*
     int steps = 1 + 3*integrator;
     for(int i=0; i<steps; i++){
         dyn->tick(frame, 1, i);
@@ -1572,49 +1703,57 @@ void ofApp::draw(){
         lp->tock(frame, 1, i);
     }
     dyn->update(1);
-    lp->update(1);
+    lp->update(1);*/
+
 
 //    blur(dyn->y, dyn->y, blur_initial);
 
     //branch on disp_mode and draw to screen
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
+
+    //y_new.draw(0,0,ww,wh);
+    //agent_fbo.draw(0,0,ww,wh);
+    
     switch(display_sequence[disp_mode]){
         case AVFBDM_Color:
-            mov(y_fbo, display_fbo);
-            b2u(display_fbo, display_fbo);
+            y_fbo.draw(0,0,ww,wh);
+            //mov(y_fbo, display_fbo);
+            //b2u(display_fbo, display_fbo);
             break;
         case AVFBDM_Monochrome:
-            beginShader("display");
+            /*beginShader("display");
             setShaderParam("size", display_fbo.getWidth(), display_fbo.getHeight());
             setShaderParam("state", y_fbo.getTextureReference(), 0);
             display_fbo.begin();
             ofDrawRectangle(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
             display_fbo.end();
-            endShader();
+            endShader();*/
             break;
         case AVFBDM_Agents:
-            resample(agent_fbo, display_fbo);
+            agent_fbo.draw(0,0,ww,wh);
+            //resample(agent_fbo, display_fbo);
             break;
         case AVFBDM_Pyramid:
-            if(!disp_scale)
+            /*if(!disp_scale)
                 mov(y_pyramid[disp_scale], display_fbo);
             else
                 resample(y_pyramid[disp_scale], display_fbo);
-            b2u(display_fbo, display_fbo);
+            b2u(display_fbo, display_fbo);*/
             break;
         case AVFBDM_Displacement:
-            if(!disp_scale)
+            /*if(!disp_scale)
                 mov(yprime_pyramid[disp_scale], display_fbo);
             else
                 resample(yprime_pyramid[disp_scale], display_fbo);
-            b2u(display_fbo, display_fbo);
+            b2u(display_fbo, display_fbo);*/
             break;
         case AVFBDM_Filter:
-            mov(lp->getState(), display_fbo);
-            b2u(display_fbo, display_fbo);
+            lp_fbo.draw(0,0,ww,wh);
+            /*mov(lp->getState(), display_fbo);
+            b2u(display_fbo, display_fbo);*/
             break;
     }
-
+/*
     beginShader("torus_shift");
     setShaderParam("state", display_fbo.getTextureReference(0), 0);
     setShaderParam("shift", draw_offset);
@@ -1643,18 +1782,19 @@ void ofApp::draw(){
             ofLogWarning("This frame was not added!");
         }
     }
+    */
     //else
     //    mov(display_fbo, render_fbo);
     //render_fbo.draw(0,0,ww,wh);
 
     //read pixels back from video memory and put a new frame in the VWT
-    if(readback_fbo.getWidth() != y_fbo.getHeight()){
+    /*if(readback_fbo.getWidth() != y_fbo.getHeight()){
         resample(y_fbo, readback_fbo);
         b2u(readback_fbo, readback_fbo);
     }
     else{
         b2u(y_fbo, readback_fbo);
-    }
+    }*/
     ofFloatPixels *pix = new ofFloatPixels();
     readback_fbo.readToPixels(*pix,0);
     vwt->insert_frame(pix);
@@ -1662,7 +1802,7 @@ void ofApp::draw(){
 
     //if in render mode, compute audio in the draw loop
     //delay should be equal to frame duration
-    if(!realtime){
+    /*if(!realtime){
         int frame_duration_samps = audio_sample_rate/frame_rate;
         int nsamps = frame_duration_samps*audio_channels;
         float * samps = (float*)malloc(nsamps*sizeof(float));
@@ -1682,7 +1822,7 @@ void ofApp::draw(){
         stringstream feedback_fname;
         feedback_fname<<cur_save_dir.path()<<ofToDataPath("/feedback-")<<frame<<".png";
         img.saveImage(feedback_fname.str());
-
+*/
         /*render_fbo->begin();
         agent_fbo.draw(0,0,render_fbo->getWidth(), render_fbo->getHeight());
         render_fbo->end();
@@ -1701,13 +1841,13 @@ void ofApp::draw(){
             ofImage(pix).saveImage(camera_fname.str());
         }*/
 
-    }
+    //}
 
     frame++;
     drawing = true;
 }
 
-void ofApp::initRandom(ofxPingPongFbo &target, int seed){
+void ofApp::initRandom(ofFbo &target, int seed){
     printf("init random %d\n", seed);
     ofSeedRandom(seed);
     ofFloatPixels newState;
@@ -1727,14 +1867,14 @@ void ofApp::initRandom(ofxPingPongFbo &target, int seed){
     target.end();
 }
 
-void ofApp::initParams(int &seed){
+/*void ofApp::initParams(int &seed){
     ofSeedRandom(seed);
     for(int i=0; i<3; i++)
     for(int j=0; j<3; j++){
         color_proj(i,j) = 2*ofRandom(-1,1);
         grad_proj(i,j) = 2*ofRandom(-1,1);
     }
-}
+}*/
 
 void ofApp::toggleRenderMode(){
     realtime = !realtime;
@@ -1753,7 +1893,7 @@ void ofApp::toggleVideoRecord(){
 }
 
 void ofApp::beginVideoRecord(){
-    int w = render_fbo.getWidth(), h = render_fbo.getHeight();
+    int w = render_width, h = render_height;
 
     stringstream bitrate;
     bitrate<<int(h*w*frame_rate*24/1000)<<"k";
@@ -1775,7 +1915,7 @@ void ofApp::beginVideoRecord(){
     //vr.setVideoCodec("libschroedinger"); //ffmpeg crashes at end, video broken
 
     vr.setVideoCodec("mpeg4"); //flat memory use, works great, very lossy;
-    //with bit rate set as above, slow memory growth + spike at end, good quality
+    //with bit rate set as above, slow memory growth + spike at end, decent quality
 
     //vr.setVideoCodec("libx264"); //video likes to freeze part way through, lossy, memory fills fairly quickly
     //vr.setVideoCodec("libx264rgb"); //same
@@ -1905,31 +2045,34 @@ void ofApp::keyPressed(int key){
         cout<<"integrator: "<<integrator<<endl;
     }
     if(key=='l'){
-        cout<<"reload shaders"<<endl;
+        /*cout<<"reload shaders"<<endl;
         loadShaders();
+        */
     }
     if(key=='p'){
         disp_scale = ofWrap(disp_scale+1, 0, num_scales);
         cout<<"display scale: "<<disp_scale<<endl;
     }
     if(key=='s'){
-        ofPixels p;
+        /*ofPixels p;
         display_fbo.readToPixels(p);
         ofImage screenshot = ofImage(p);
         stringstream fname;
         fname<<"ss-"<<ofGetTimestampString()<<".png";
-        screenshot.saveImage(fname.str());
+        screenshot.saveImage(fname.str());*/
     }
     if(key=='r'){
-        initRandom(lp->getState(), seed+1);
-        initRandom(dyn->getState(), seed);
+        initRandom(forward_graph->getFbo("state00"), frame);
+        mov(forward_graph->getFbo("state00"), forward_graph->getFbo("lp00"));
+        //initRandom(lp->getState(), seed+1);
+        //initRandom(dyn->getState(), seed);
         vwt->scramble();
-        ofPushStyle();
-        ofSetColor(0,0,0);
-        agent_fbo.begin();
-        ofDrawRectangle(0,0,agent_fbo.getWidth(),agent_fbo.getHeight());
-        agent_fbo.end();
-        ofPopStyle();
+        //ofPushStyle();
+        //ofSetColor(0,0,0);
+        //agent_fbo.begin();
+        //ofDrawRectangle(0,0,agent_fbo.getWidth(),agent_fbo.getHeight());
+        //agent_fbo.end();
+        //ofPopStyle();
     }
     if(key==']'){
         setResolution(fbo_params.width*2, fbo_params.height*2);
@@ -1958,7 +2101,7 @@ void ofApp::usage(){
         "a - audio on/off"<<endl<<
        // "b - change display buffer for pyramid"<<endl<<
         "c - recenter draw_offset"<<endl<<
-        "d - change display mode (monochrome->agents->pyramid->lp->color)"<<endl<<
+        "d - change display mode"<<endl<<
         "f - toggle fullscreen"<<endl<<
         "h - print this message"<<endl<<
         "i - toggle integrator (0=euler, 1=rk4)"<<endl<<

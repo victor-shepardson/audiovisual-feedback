@@ -11,12 +11,6 @@
 #include <unordered_set>
 #include <unordered_map>
 
-////// TODO:
-/*
-write euler.frag and integrator.xml
-*/
-
-
 //class to distribute fbos for space+time efficient drawing
 //for example in a drawing graph we don't need an fbo for every node,
 //we can free a node's resources once all its dependencies have drawn
@@ -92,11 +86,11 @@ public:
     //release output fbo to the allocator
     void releaseBuffer();
 
-    bool getDirty();
+    virtual bool getDirty();
     void setDirty(bool b);
 
     //recursively dirty the whole graph
-    void dirtyAll();
+    //void dirtyAll();
 
     uint32_t getNumOutputTextures();
     uint32_t getNumInputTextures(uint32_t i);
@@ -107,12 +101,14 @@ public:
     void setParameter(string, float);
     void setParameter(string, int);
 
+   // void setParameterAlias(string, ofParameter<auto>&);
+
 
     //bool verifyInputShapes();
 
     //when no more dependents, release resources
     //note that if a node starts without dependents, this will not be called
-    void decrementDependents();
+    virtual void decrementDependents();
 
 private:
     //flag noting whether this node has been drawn yet this cycle
@@ -155,6 +151,7 @@ public:
     ofxFboAllocator *allocator;
 
     ofParameterGroup params;
+    //ofParameterGroup aliases;
 
     unordered_map<string, ofxBaseShaderNode*> nodes;
     unordered_set<ofxBaseShaderNode*> roots;
@@ -166,7 +163,13 @@ public:
     //construct a graph from XML
     void buildFromXml(ofXml x);
 
+    ofFbo &getFbo(string);
+    void swapFbos(string, string);
+
     ofxShaderGraph(ofxFboAllocator *a, ofFbo::Settings s);
+
+    //void forwardParameter(const void* alias_param, auto val);
+    //void forwardParameter(auto &val);
 };
 
 //================================================================================
@@ -205,7 +208,7 @@ private:
     ofxFastFboReader reader;
 };
 
-template <class T>
+/*template <class T>
 class ofxDynamicalTexture{
 public:
     static ofShader shader_rkupdate;
@@ -229,7 +232,7 @@ private:
     void rkUpdate(float dt);
     void rkStep(float t, float dt, int i);
 };
-
+*/
 //manages a numerical integration algorithm with derivatives set by a black box
 //should manage any ancillary buffers needed; who should own the state buffers?
 //sleep on this for now
@@ -265,6 +268,10 @@ class ofApp : public ofBaseApp{
         void loadShaders();
         void setupParameters();
         void setupConstants();
+        void setupGL();
+        void setupGraph();
+        void setupGlobals();
+        void setupAudio();
 
         void allocateFbos();
         void reallocateFbos();
@@ -279,10 +286,10 @@ class ofApp : public ofBaseApp{
         void windowResized(int w, int h);
         void dragEvent(ofDragInfo dragInfo);
         void gotMessage(ofMessage msg);
-        void initRandom(ofxPingPongFbo &target, int mode); //todo: replace with GPU noise in modular style
+        void initRandom(ofFbo &target, int mode); //todo: replace with GPU noise in modular style
         void initParams(int &seed);
 
-        void dynDerivative(float t, ofxPingPongFbo &yprime);
+        /*void dynDerivative(float t, ofxPingPongFbo &yprime);
         void lpDerivative(float t, ofxPingPongFbo &yprime);
 
         void resampleToWindow(ofxPingPongFbo &src);
@@ -306,14 +313,14 @@ class ofApp : public ofBaseApp{
         void magnitudes(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void displacement(ofxPingPongFbo &src, ofxPingPongFbo &dest);
         void multilateral_filter(ofxPingPongFbo &src, ofxPingPongFbo &aux, ofxPingPongFbo &dest);
-
+*/
         void mov(ofFbo &src, ofFbo &dest);
 
-        void beginShader(string);
-        void endShader();
+        //void beginShader(string);
+        //void endShader();
 
-        map<string, ofShader> shaders;
-        ofShader *cur_shader;
+        //map<string, ofShader> shaders;
+        //ofShader *cur_shader;
 
         //wrap shader.setUniformxx
         void setShaderParam(const string&);
@@ -338,57 +345,18 @@ class ofApp : public ofBaseApp{
         ofxPanel gui;
 
         ofxFboAllocator fbo_allocator;
-        ofxShaderGraph forward_graph;
+        ofxShaderGraph *forward_graph;//, *integrator_graph;
 
-    //now naming all these from params.txt and using params.getFloat("name"); leaving this here for the comments for now
-/*        ofParameter<float> filter_steps; //truncated to int: number of times to apply edge-aware filter
-        ofParameter<float> blur_post; //radius of gaussian blur applied after warping
-        ofParameter<float> lf_bleed; //amount of low frequency information left behind in high-passed bins
-        ofParameter<float> blur_initial; //radius of a blur applied before frequency decomposition, in pixels
-        ofParameter<float> blur_scale; //scale the radius of blur used for low pass filter (determined by fixed scale factor)
-        ofParameter<float> drive; //gain parameter on main derivative
-        ofParameter<float> lp_frames; //set the time constant for the temporal filter in frames
-        ofParameter<float> lp_radius; //set the radius of spatial diffusion on the temporal filter
-
-        ofParameter<float> disp_exponent; //how to scale displacements to compensate for downsampling
-        ofParameter<float> xdrift; //horizontal displacement
-        of`eter<float> ydrift; //vertical displacement
-        ofParameter<float> zoom; //scale around center
-        ofParameter<float> suck; //radial displacement
-        ofParameter<float> swirl; //perpendicular to suck
-        ofParameter<float> mirror_shape; //interpolate horizontal/radial
-        ofParameter<float> mirror_amt; //mix amount
-        ofParameter<float> warp_grad; //control magnitude of gradient-based displacement
-        ofParameter<float> warp_color; //control magnitude of color-based displacement
-        ofParameter<float> warp_agent; //control magnitude of agent-based displacement
-        ofParameter<float> agent_drive; //shape nonlinearity used to squash agent values
-
-        ofParameter<float> saturate; //color saturating component of derivative
-        ofParameter<float> bias; //bias derivative
-        ofParameter<float> gen; //scale magnitude of spatial component of derivative
-        ofParameter<float> compress; //at 1, normalize derivate at each scale. at 0, do nothing
-        ofParameter<float> rot; //how much weird color rotation
-        ofParameter<float> time_scale; //scale derivatives/time
-        ofParameter<float> bound_clip; //clamp derivatives to prevent blow up
-
-        ofParameter<float> agent_rate; //image widths in Hz if traveling at max velocity in a horizontal line
-        ofParameter<float> momentum_time; //time constant for momentum, in seconds
-        ofParameter<float> path_jitter; //random jitter in agent position, in image widths
-        ofParameter<float> fade_time; //time constant for agent buffer fade, in seconds
-        ofParameter<float> path_blur; //radius of agent buffer blur, in pixels
-
-        ofParameter<float> test_param; //general purpose parameter for convenience
-*/
         ofParameter<int> seed; //seed for filling matrices below
 
-        ofMatrix4x4 grad_proj, color_proj;
+        //ofMatrix4x4 grad_proj, color_proj;
 
         ofFbo::Settings fbo_params;
 
-        ofxDynamicalTexture<ofApp> *dyn, *lp;
+        //ofxDynamicalTexture<ofApp> *dyn, *lp;
 
-        vector<ofxPingPongFbo> y_pyramid, yprime_pyramid;
-        ofxPingPongFbo  agent_fbo, display_fbo, readback_fbo, render_fbo;
+        //vector<ofxPingPongFbo> y_pyramid, yprime_pyramid;
+        //ofxPingPongFbo  agent_fbo, display_fbo, readback_fbo, render_fbo;
         double frame;
 
         int disp_buf, disp_mode, disp_scale, audio_file_size, oversample_waveform, num_scales,
@@ -414,6 +382,7 @@ class ofApp : public ofBaseApp{
         vector<AVFBDisplayMode> display_sequence;
 
         ofVideoGrabber camera;
+
         ofxVideoRecorder vr;
 
         ofxVideoWaveTerrain *vwt;

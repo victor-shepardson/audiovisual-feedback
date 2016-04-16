@@ -3,6 +3,7 @@
 uniform sampler2D state;
 uniform vec2 dir;
 uniform ivec2 size;
+uniform float scale; //set to M/N where M is width of dest, N is width of src
 
 out vec4 outputColor;
 
@@ -32,16 +33,13 @@ vec3 blur(){
 	int num = 2*int(ceil(r)); //number of hops == number of samples - 1
 	float inc = 2.*r/(num);
 
-	for(float i= -r; i<=r+.0001; i+=inc){
+	for(float i= -r; i<r+.0001; i+=inc){
 		float x = i*gauss_coeff;
 		float weight = exp(-x*x);
-		acc+= weight*sample(p+i*d);
+		acc+= weight*sample(p+i*d*scale);
 		norm+= weight;
 	}
 	acc/=norm;
-	//if(abs(acc.r)<.00000000000001) acc.r = 0.;
-	//if(abs(acc.g)<.00000000000001) acc.g = 0.;
-	//if(abs(acc.b)<.00000000000001) acc.b = 0.;
 	return acc;
 }
 

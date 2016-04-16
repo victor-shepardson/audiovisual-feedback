@@ -14,12 +14,11 @@ uniform float compress;
 uniform float drive;
 uniform float agent_drive;
 uniform float warp_agent;
-uniform	float saturate;
-uniform	float bias;
+uniform float saturate;
+uniform float bias;
 uniform float gen;
-uniform float num_scales;
-uniform	float time_scale;
-uniform	float rot;
+uniform float time_scale;
+uniform float rot;
 uniform float mirror_shape;
 uniform float mirror_amt;
 uniform float zoom;
@@ -27,10 +26,7 @@ uniform float swirl;
 uniform float suck;
 uniform float xdrift;
 uniform float ydrift;
-uniform	float bound_clip;
-
-//uniform mat4 color_proj;
-//uniform mat4 grad_proj;
+uniform float bound_clip;
 
 vec2 drift = vec2(xdrift, ydrift);
 
@@ -108,7 +104,7 @@ void main() {
 
 	vec3 val_y = sample(p,y);
 
-	p = size*(zoom*(p*invsize-.5)+.5);
+	p = size*(pow(2.,zoom)*(p*invsize-.5)+.5);
 
 	p += suck*radial;
 
@@ -220,7 +216,7 @@ void main() {
 
 	d = mix(d, d/(length(d)+.001), compress);
 
-	d += vec3(0.);
+	//d += vec3(0.);
 	d += agent_drive*sigmoid(u2b(val_agents));
 	//d += agent_drive*sin(8./3.*PI*sigmoid(sample(p, agents)));
 

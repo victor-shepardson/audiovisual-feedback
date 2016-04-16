@@ -11,13 +11,6 @@
 		</inputs>
 	</node>
 
-	<node name="filter00" shader="lp_filter">
-		<inputs>
-			<input>state00</input>
-			<input>lp00</input>
-		</inputs>
-	</node>
-
 	<node name="grad00" shader="grad">
 		<inputs>
 			<input>state00</input>
@@ -29,6 +22,10 @@
 			<input>state00</input>
 			<input>grad00</input>
 		</inputs>
+		<defaults>
+			<float name="warp_color/0f">1</float>
+			<float name="warp_grad/0f">-0.5</float>
+		</defaults>
 	</node>
 
 	<node name="multilateral00" shader="multilateral_filter">
@@ -36,6 +33,10 @@
 			<input>state00</input>
 			<input>displacement00</input>
 		</inputs>
+		<defaults>
+			<float name="sigma_color/0f">1</float>
+			<float name="sigma_position/0f">0.5</float>
+		</defaults>
 	</node>
 
 	<node name="derivative00" shader="post_derivative">
@@ -46,24 +47,66 @@
 			<input>agents</input>
 			<input>agent_grad</input>
 		</inputs>
+		<defaults>
+			<float name="drive/0f">0.05</float>
+			<float name="agent_drive/0f">0.1</float>
+			<float name="warp_agent/0f">128</float>
+			<float name="time_scale/0f">1</float>
+		</defaults>
 	</node>
 
-<!--	<node name="hblur00" shader="blur">
+	<node name="lpderivative00" shader="lp_filter">
+		<inputs>
+			<input>state00</input>
+			<input>lp00</input>
+		</inputs>
+		<defaults>
+			<float name="alpha/0f">.01</float>
+			<float name="beta/0f">.12</float>
+			<float name="epsilon/0f">.00001</float>
+			<float name="time_scale/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="new00" shader="euler">
+		<inputs>
+			<input>state00</input>
+			<input>derivative00</input>
+		</inputs>
+		<defaults>
+			<float name="dt/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="lpnew00" shader="euler">
+		<inputs>
+			<input>lp00</input>
+			<input>lpderivative00</input>
+		</inputs>
+		<defaults>
+			<float name="dt/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="hblur00" shader="blur">
 	 	<inputs>
 	   		<input>state00</input>
 		</inputs>
 		<defaults>
-			<float name="dir/0">5</float>
+			<float name="dir/0f">10</float>
+			<float name="scale/0f">1</float>
 		</defaults>
 	</node>
 
 	<node name="vblur00" shader="blur">
+		<scale> .1 </scale>
 	 	<inputs>
 	   		<input>hblur00</input>
 		</inputs>
 		<defaults>
-			<float name="dir/1">5</float>
+			<float name="dir/1f">10</float>
+			<float name="scale/0f">.1</float>
 		</defaults>
 	</node>
-!-->
+
 </graph>
