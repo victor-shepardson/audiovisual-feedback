@@ -5,22 +5,32 @@ uint64_t ofxFboAllocator::keyFromSettings(ofFbo::Settings s){
     uint64_t w = s.width;
     uint64_t h = s.height;
     uint64_t c = s.numColorbuffers;
-    return keyFromDim(w,h,c);
+    uint64_t f = s.internalformat;
+    return keyFromDim(w,h,c,f);
 }
 
 uint64_t ofxFboAllocator::keyFromFbo(ofFbo *fbo){
     uint64_t w = fbo->getWidth();
     uint64_t h = fbo->getHeight();
     uint64_t c = fbo->getNumTextures();
-    return keyFromDim(w,h,c);
+    uint64_t f = fboFormat(fbo);
+    return keyFromDim(w,h,c,f);
 }
 
-uint64_t ofxFboAllocator::keyFromDim(uint64_t w, uint64_t h, uint64_t c){
-    uint64_t mask = (1<<25)-1;
+//quick and dirty hash function for fbos
+//assumes that casting width, height, number of channels, and internal format id to
+//uint16 does not cause any collisions
+uint64_t ofxFboAllocator::keyFromDim(uint64_t w, uint64_t h, uint64_t c, uint64_t f){
+    uint64_t mask = (1<<17)-1;
     w &= mask;
     h &= mask;
     c &= mask;
-    return h | (w<<24) | (c<<48);
+    f &= mask;
+    return h | (w<<16) | (c<<32) | (f<<48);
+}
+
+uint64_t ofxFboAllocator::fboFormat(ofFbo *fbo){
+    return fbo->getTexture().getTextureData().glInternalFormat;
 }
 
 ofFbo* ofxFboAllocator::allocate(ofFbo::Settings s){
@@ -37,7 +47,7 @@ ofFbo* ofxFboAllocator::allocate(ofFbo::Settings s){
         bin.available.erase(i);
     }
     else{
-        cout<<"ofxFboAllocator: making new ("<<s.width<<"x"<<s.height<<"x"<<s.numColorbuffers<<") fbo with key = "<<k<<endl;
+        cout<<"ofxFboAllocator: making new "<<s.internalformat<<" ("<<s.width<<"x"<<s.height<<"x"<<s.numColorbuffers<<") fbo with key = "<<k<<endl;
         ret = new ofFbo();
         ret->allocate(s);
         if(keyFromFbo(ret)!=k)
@@ -588,11 +598,31 @@ void ofxShaderGraph::buildFromXml(ofXml x){
         }
         ofxBaseShaderNode *node;
         ofFbo::Settings node_fbo_settings = fbo_settings;
+        //check for modifications to fbo_settings
         if(x.setTo("scale")){
             float scale = x.getFloatValue();
             node_fbo_settings.width*=scale;
             node_fbo_settings.height*=scale;
             x.setToParent();
+        }
+        string format = x.getAttribute("format");
+        if(format!=""){
+            if(format=="rgba8")
+                node_fbo_settings.internalformat = GL_RGBA8;
+            else if(format=="rgba16")
+                node_fbo_settings.internalformat = GL_RGBA16;
+            else if(format=="rgba32f")
+                node_fbo_settings.internalformat = GL_RGBA32F;
+            else if(format=="rgba16f")
+                node_fbo_settings.internalformat = GL_RGBA16F;
+            else if(format=="rgb8")
+                node_fbo_settings.internalformat = GL_RGB8;
+            else if(format=="rgb16")
+                node_fbo_settings.internalformat = GL_RGB16;
+            else if(format=="rgb32f")
+                node_fbo_settings.internalformat = GL_RGB32F;
+            else if(format=="rgb16f")
+                node_fbo_settings.internalformat = GL_RGB16F;
         }
         string shader_name = x.getAttribute("shader");
         if(shader_name == ""){
@@ -811,12 +841,11 @@ void ofApp::setupGL(){
     ofEnableBlendMode(OF_BLENDMODE_DISABLED);
     ofDisableDepthTest();
     ofDisableAntiAliasing();
-    ofSetTextureWrap(GL_REPEAT, GL_REPEAT);
 
     fbo_params = ofFbo::Settings(); //needs to come after the ofDisable* above
     fbo_params.width = realtime_width;
     fbo_params.height = realtime_height;
-    fbo_params.internalformat = GL_RGBA16F;
+    fbo_params.internalformat = GL_RGB32F;
     fbo_params.useDepth = false;
     fbo_params.useStencil = false;
     fbo_params.wrapModeHorizontal = GL_REPEAT;
@@ -887,11 +916,11 @@ void ofApp::setup(){
 
     setupAudio();
 
-    if(use_camera){
-        camera.setVerbose(true);
-        camera.listDevices();
-        camera.initGrabber(render_width, render_height);
-    }
+    // if(use_camera){
+    //     camera.setVerbose(true);
+    //     camera.listDevices();
+    //     camera.initGrabber(render_width, render_height);
+    // }
 
     cout<<"setup complete"<<endl;
 }
@@ -930,7 +959,7 @@ void ofApp::fill(ofFbo &dest, ofFloatColor c, ofBlendMode mode){
 
 void ofApp::update(){
     sync.update();
-    if(use_camera) camera.update();
+    // if(use_camera) camera.update();
     ofSetFrameRate(frame_rate);
     ofSetWindowTitle(ofToString(ofGetFrameRate()));
     if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%display_sequence.size();
@@ -985,40 +1014,18 @@ void ofApp::draw(){
     switch(display_sequence[disp_mode]){
         case AVFBDM_Color:
             display_fbo.draw(0,0,ww,wh);
-            //mov(y_fbo, display_fbo);
-            //b2u(display_fbo, display_fbo);
             break;
         case AVFBDM_Monochrome:
-            /*beginShader("display");
-            setShaderParam("size", display_fbo.getWidth(), display_fbo.getHeight());
-            setShaderParam("state", y_fbo.getTextureReference(), 0);
-            display_fbo.begin();
-            ofDrawRectangle(0, 0, display_fbo.getWidth(), display_fbo.getHeight());
-            display_fbo.end();
-            endShader();*/
             break;
         case AVFBDM_Agents:
             agent_fbo.draw(0,0,ww,wh);
-            //resample(agent_fbo, display_fbo);
             break;
         case AVFBDM_Pyramid:
-            /*if(!disp_scale)
-                mov(y_pyramid[disp_scale], display_fbo);
-            else
-                resample(y_pyramid[disp_scale], display_fbo);
-            b2u(display_fbo, display_fbo);*/
             break;
         case AVFBDM_Displacement:
-            /*if(!disp_scale)
-                mov(yprime_pyramid[disp_scale], display_fbo);
-            else
-                resample(yprime_pyramid[disp_scale], display_fbo);
-            b2u(display_fbo, display_fbo);*/
             break;
         case AVFBDM_Filter:
             lp_fbo.draw(0,0,ww,wh);
-            /*mov(lp->getState(), display_fbo);
-            b2u(display_fbo, display_fbo);*/
             break;
     }
 /*
@@ -1029,28 +1036,27 @@ void ofApp::draw(){
     display_fbo.draw(0,0,ww,wh);
     endShader();
     //resampleToWindow(display_fbo);
-
+*/
+    ofFbo &render_fbo = forward_graph->getFbo("render");
     if(recording){
         uint64_t time;
 
         //ofFloatPixels pix;
         ofPixels pix;
 
-        mov(display_fbo, render_fbo);
-
-        time = ofGetSystemTimeMicros();
+        // time = ofGetSystemTimeMicros();
         render_fbo.readToPixels(pix,0);
         //display_fbo.readToPixels(pix,0);
-        cout<<"readback time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
+        // cout<<"readback time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
 
-        time = ofGetSystemTimeMicros();
+        // time = ofGetSystemTimeMicros();
         bool success = vr.addFrame(pix);
-        cout<<"frame add time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
+        // cout<<"frame add time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
         if (!success) {
             ofLogWarning("This frame was not added!");
         }
     }
-*/
+
 
     ofFloatPixels *pix = new ofFloatPixels();
     readback_fbo.readToPixels(*pix,0);
@@ -1141,7 +1147,8 @@ void ofApp::toggleVideoRecord(){
 }
 
 void ofApp::beginVideoRecord(){
-    int w = render_width, h = render_height;
+    ofFbo &render_fbo = forward_graph->getFbo("render");
+    int w = render_fbo.getWidth(), h = render_fbo.getHeight();
 
     stringstream bitrate;
     bitrate<<int(h*w*frame_rate*24/1000)<<"k";
@@ -1223,7 +1230,7 @@ void ofApp::closeAudioFile(){
     audio_file_size = 0;
 }
 
-void ofApp::writeAudioSamps(float *samps, int nsamps){
+void ofApp::writeAudioSamps(float *samps, size_t nsamps){
     for(size_t i=0; i<nsamps; i++){
         union{
         int32_t word;

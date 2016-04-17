@@ -5,7 +5,7 @@
 
 	<node name="agent_state"></node>
 
-	<node name="agent_input"></node>
+	<node name="agent_input" format="rgba32f"></node>
 
 	<node name="agent_grad" shader="grad">
 		<inputs>
@@ -121,7 +121,7 @@
 		</defaults>
 	</node>
 
-	<node name="state00_readback" shader="blur">
+	<node name="state00_vblur" shader="blur">
 		<scale> .1 </scale>
 	 	<inputs>
 	   		<input>state00_hblur</input>
@@ -132,7 +132,20 @@
 		</defaults>
 	</node>
 
+	<node name="state00_readback" shader="b2u">
+		<scale> .1 </scale>
+	 	<inputs>
+	   		<input>state00_vblur</input>
+		</inputs>
+	</node>
+
 	<node name="state00_display" shader="b2u">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>
+
+	<node name="render" shader="b2u" format="rgb8">
 		<inputs>
 			<input>state00</input>
 		</inputs>

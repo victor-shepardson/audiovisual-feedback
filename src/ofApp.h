@@ -41,7 +41,9 @@ private:
 
     uint64_t keyFromSettings(ofFbo::Settings);
     uint64_t keyFromFbo(ofFbo*);
-    uint64_t keyFromDim(uint64_t,uint64_t,uint64_t);
+    uint64_t keyFromDim(uint64_t,uint64_t,uint64_t,uint64_t);
+    uint64_t fboFormat(ofFbo *fbo);
+
 };
 
 class ofxBaseShaderNode{
@@ -199,7 +201,7 @@ class ofApp : public ofBaseApp{
         void endRenderMode();
         void openAudioFile(string fname);
         void closeAudioFile();
-        void writeAudioSamps(float *samps, int nsamps);
+        void writeAudioSamps(float *samps, size_t nsamps);
         void toggleVideoRecord();
         void beginVideoRecord();
         void endVideoRecord();
