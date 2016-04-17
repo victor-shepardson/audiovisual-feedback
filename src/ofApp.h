@@ -27,6 +27,9 @@ public:
     //release an fbo pointer back to the pool of available fbos
     void release(ofFbo *fbo);
 
+    //destroy all fbos not currently in use
+    void destroy_available();
+
 private:
     class ofxFboAllocatorBin{
     public:
@@ -71,6 +74,7 @@ public:
     ofFbo *output;
 
     ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n, ofShader *sh);
+    ~ofxBaseShaderNode();
 
     //black-box drawing function to be differentiated by subclasses
     //dummy draw() so class is not abstract
@@ -96,10 +100,12 @@ public:
     uint32_t getNumInputTextures(uint32_t i);
     uint32_t getNumInputs();
 
-    ofParameterGroup &getParameterGroup();
+    ofParameterGroup& getParameterGroup();
     ofParameterGroup& getParameter(string path);
     void setParameter(string, float);
     void setParameter(string, int);
+
+    virtual void scaleResolution(float, float);
 
    // void setParameterAlias(string, ofParameter<auto>&);
 
@@ -139,6 +145,8 @@ public:
     bool getDirty();
     //override decrementDependents() to not release buffer
     void decrementDependents();
+    //override scaleResolution() to copy contents
+    void scaleResolution(float, float);
 };
 
 //class managing a DAG of ofxBaseShaderNodes
@@ -163,87 +171,18 @@ public:
     //construct a graph from XML
     void buildFromXml(ofXml x);
 
+    void setResolution(int w, int h);
+
     ofFbo &getFbo(string);
     void swapFbos(string, string);
 
     ofxShaderGraph(ofxFboAllocator *a, ofFbo::Settings s);
-
+    ~ofxShaderGraph();
     //void forwardParameter(const void* alias_param, auto val);
     //void forwardParameter(auto &val);
 };
 
 //================================================================================
-
-//should replace aux with a collection of buffers and save()/restore() with push()/pop()
-//then lazily allocate new buffers to aux
-class ofxPingPongFbo{
-public:
-    ofxPingPongFbo();
-    ofxPingPongFbo& operator=(const ofxPingPongFbo &);
-    ofxPingPongFbo(const ofxPingPongFbo &);
-    //ofxPingPongFbo copy();
-    void destroy();
-    void allocate(ofFbo::Settings);
-    void draw(int,int,int,int);
-    ofTexture& getTextureReference();
-    ofTexture& getTextureReference(int);
-    int getWidth();
-    int getHeight();
-    void swap();
-    void save();
-    void restore();
-    void begin();
-    void end();
-    void beginInPlace();
-    void endInPlace();
-    void readToPixels(ofPixels&, int) ;
-    void readToPixels(ofFloatPixels&, int) ;
-    int getNumTextures();
-    void setActiveDrawBuffer(int);
-	void setActiveDrawBuffers(const vector<int>&);
-	void activateAllDrawBuffers();
-    ofFbo::Settings settings;
-private:
-    ofFbo *ping, *pong, *aux;
-    ofxFastFboReader reader;
-};
-
-/*template <class T>
-class ofxDynamicalTexture{
-public:
-    static ofShader shader_rkupdate;
-    ofxDynamicalTexture(T *app, void (T::*derivative)(float, ofxPingPongFbo&));
-    void allocate(ofFbo::Settings);
-    void destroy();
-    //to update, tick() all mutually dependent ofxDynamicalTextures, then tock() them;
-    //do this once for euler, 4 times for rk4; call tick and tock with i=loop index (0-3)
-    //then call update with mode = 0 for euler, 1 for rk4
-    void tick(float t, float dt, int i);
-    void tock(float t, float dt, int i);
-    void update(float dt);
-    ofxPingPongFbo &getState();
-private:
-    int ticks, tocks;
-    ofxPingPongFbo y, ytemp; //y stores the state at each time step; ytemp stores updated states for intermediate computations
-    vector<ofxPingPongFbo> k;
-    T *app;
-    void (T::*derivative)(float, ofxPingPongFbo&);
-    void rkUpdate(float dt, int i);
-    void rkUpdate(float dt);
-    void rkStep(float t, float dt, int i);
-};
-*/
-//manages a numerical integration algorithm with derivatives set by a black box
-//should manage any ancillary buffers needed; who should own the state buffers?
-//sleep on this for now
-/*template <typename T>
-class ofxRKIntegrator{
-public:
-    void step(float t, float dt);
-    void add(ofxDynamicalTexture<T> *p);
-private:
-    vector<ofxDynamicalTexture<T> *> v;
-};*/
 
 class ofApp : public ofBaseApp{
 
@@ -269,7 +208,7 @@ class ofApp : public ofBaseApp{
         void setupParameters();
         void setupConstants();
         void setupGL();
-        void setupGraph();
+        void setupGraph(ofxShaderGraph*&, string);
         void setupGlobals();
         void setupAudio();
 
@@ -289,54 +228,9 @@ class ofApp : public ofBaseApp{
         void initRandom(ofFbo &target, int mode); //todo: replace with GPU noise in modular style
         void initParams(int &seed);
 
-        /*void dynDerivative(float t, ofxPingPongFbo &yprime);
-        void lpDerivative(float t, ofxPingPongFbo &yprime);
-
-        void resampleToWindow(ofxPingPongFbo &src);
-        void resample(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-
-        void processingAtScale(float t, ofxPingPongFbo &src, ofxPingPongFbo &m, ofxPingPongFbo &dest, float scale, float mod);
-        void multiscaleProcessing(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void filtering(float t, ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void derivativePost(float t, ofxPingPongFbo &y, ofxPingPongFbo &new_y, ofxPingPongFbo &lp, ofxPingPongFbo &new_yprime);
-
-        void scale_add(float a, ofxPingPongFbo &x, float b, ofxPingPongFbo &y, ofxPingPongFbo &dest);
-        void mix(float m, ofxPingPongFbo &x, ofxPingPongFbo &y, ofxPingPongFbo &dest);
-        void b2u(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void fill(ofxPingPongFbo &dest, ofFloatColor c, ofBlendMode mode = OF_BLENDMODE_ALPHA);
-        void blur(ofxPingPongFbo &src, ofxPingPongFbo &dest, float radius);
-        void sub(ofxPingPongFbo &pos, ofxPingPongFbo& neg, ofxPingPongFbo &dest);
-        void edge_aware_filter(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void mov(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void blend(ofxPingPongFbo &src, ofxPingPongFbo &dest, ofBlendMode mode);
-        void gradients(ofxPingPongFbo &src);
-        void magnitudes(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void displacement(ofxPingPongFbo &src, ofxPingPongFbo &dest);
-        void multilateral_filter(ofxPingPongFbo &src, ofxPingPongFbo &aux, ofxPingPongFbo &dest);
-*/
         void mov(ofFbo &src, ofFbo &dest);
+        void fill(ofFbo &dest, ofFloatColor c, ofBlendMode mode = OF_BLENDMODE_ALPHA);
 
-        //void beginShader(string);
-        //void endShader();
-
-        //map<string, ofShader> shaders;
-        //ofShader *cur_shader;
-
-        //wrap shader.setUniformxx
-        void setShaderParam(const string&);
-        void setShaderParam(const string&, float);
-        void setShaderParam(const string&, float, float);
-        void setShaderParam(const string&, float, float, float);
-        void setShaderParam(const string&, float, float, float, float);
-        void setShaderParam(const string&, ofVec2f&);
-        void setShaderParam(const string&, ofVec3f&);
-        void setShaderParam(const string&, ofVec4f&);
-        void setShaderParam(const string&, int);
-        void setShaderParam(const string&, int, int);
-        void setShaderParam(const string&, int, int, int);
-        void setShaderParam(const string&, int, int, int, int);
-        void setShaderParam(const string&, ofMatrix4x4);
-        void setShaderParam(const string&, ofTexture&, int loc=0);
 
         ofParameterGroup params;
         ofxOscParameterSync sync;
@@ -347,16 +241,10 @@ class ofApp : public ofBaseApp{
         ofxFboAllocator fbo_allocator;
         ofxShaderGraph *forward_graph;//, *integrator_graph;
 
-        ofParameter<int> seed; //seed for filling matrices below
-
-        //ofMatrix4x4 grad_proj, color_proj;
+        //ofParameter<int> seed; //seed for filling matrices below
 
         ofFbo::Settings fbo_params;
 
-        //ofxDynamicalTexture<ofApp> *dyn, *lp;
-
-        //vector<ofxPingPongFbo> y_pyramid, yprime_pyramid;
-        //ofxPingPongFbo  agent_fbo, display_fbo, readback_fbo, render_fbo;
         double frame;
 
         int disp_buf, disp_mode, disp_scale, audio_file_size, oversample_waveform, num_scales,

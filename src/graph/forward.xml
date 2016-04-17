@@ -1,26 +1,28 @@
 <graph name="forward">
 	<node name="state00"></node>
 
-	<node name="lp00"></node>
+	<node name="state00_lp"></node>
 
-	<node name="agents"></node>
+	<node name="agent_state"></node>
+
+	<node name="agent_input"></node>
 
 	<node name="agent_grad" shader="grad">
 		<inputs>
-			<input>agents</input>
+			<input>agent_state</input>
 		</inputs>
 	</node>
 
-	<node name="grad00" shader="grad">
+	<node name="state00_grad" shader="grad">
 		<inputs>
 			<input>state00</input>
 		</inputs>
 	</node>
 
-	<node name="displacement00" shader="displacement">
+	<node name="state00_disp" shader="displacement">
 		<inputs>
 			<input>state00</input>
-			<input>grad00</input>
+			<input>state00_grad</input>
 		</inputs>
 		<defaults>
 			<float name="warp_color/0f">1</float>
@@ -28,10 +30,10 @@
 		</defaults>
 	</node>
 
-	<node name="multilateral00" shader="multilateral_filter">
+	<node name="state00_warped" shader="multilateral_filter">
 		<inputs>
 			<input>state00</input>
-			<input>displacement00</input>
+			<input>state00_disp</input>
 		</inputs>
 		<defaults>
 			<float name="sigma_color/0f">1</float>
@@ -39,12 +41,12 @@
 		</defaults>
 	</node>
 
-	<node name="derivative00" shader="post_derivative">
+	<node name="state00_derivative" shader="post_derivative">
 		<inputs>
 			<input>state00</input>
-			<input>multilateral00</input>
-			<input>lp00</input>
-			<input>agents</input>
+			<input>state00_warped</input>
+			<input>state00_lp</input>
+			<input>agent_state</input>
 			<input>agent_grad</input>
 		</inputs>
 		<defaults>
@@ -55,10 +57,10 @@
 		</defaults>
 	</node>
 
-	<node name="lpderivative00" shader="lp_filter">
+	<node name="state00_lp_derivative" shader="lp_filter">
 		<inputs>
 			<input>state00</input>
-			<input>lp00</input>
+			<input>state00_lp</input>
 		</inputs>
 		<defaults>
 			<float name="alpha/0f">.01</float>
@@ -68,27 +70,48 @@
 		</defaults>
 	</node>
 
-	<node name="new00" shader="euler">
+	<node name="agent_state_derivative" shader="agent_derivative">
+		<inputs>
+			<input>agent_state</input>
+			<input>agent_input</input>
+		</inputs>
+		<defaults>
+			<float name="fade_time/0f">8</float>
+			<float name="blur_amt/0f">.5</float>
+		</defaults>
+	</node>
+
+	<node name="state00_new" shader="euler">
 		<inputs>
 			<input>state00</input>
-			<input>derivative00</input>
+			<input>state00_derivative</input>
 		</inputs>
 		<defaults>
 			<float name="dt/0f">1</float>
 		</defaults>
 	</node>
 
-	<node name="lpnew00" shader="euler">
+	<node name="state00_lp_new" shader="euler">
 		<inputs>
-			<input>lp00</input>
-			<input>lpderivative00</input>
+			<input>state00_lp</input>
+			<input>state00_lp_derivative</input>
 		</inputs>
 		<defaults>
 			<float name="dt/0f">1</float>
 		</defaults>
 	</node>
 
-	<node name="hblur00" shader="blur">
+	<node name="agent_state_new" shader = "euler">
+		<inputs>
+			<input>agent_state</input>
+			<input>agent_state_derivative</input>
+		</inputs>
+		<defaults>
+			<float name="dt/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="state00_hblur" shader="blur">
 	 	<inputs>
 	   		<input>state00</input>
 		</inputs>
@@ -98,15 +121,21 @@
 		</defaults>
 	</node>
 
-	<node name="vblur00" shader="blur">
+	<node name="state00_readback" shader="blur">
 		<scale> .1 </scale>
 	 	<inputs>
-	   		<input>hblur00</input>
+	   		<input>state00_hblur</input>
 		</inputs>
 		<defaults>
 			<float name="dir/1f">10</float>
 			<float name="scale/0f">.1</float>
 		</defaults>
+	</node>
+
+	<node name="state00_display" shader="b2u">
+		<inputs>
+			<input>state00</input>
+		</inputs>
 	</node>
 
 </graph>
