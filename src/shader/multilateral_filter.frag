@@ -23,7 +23,7 @@ vec3 bilateral_filter(const in float sigma_c, const in float sigma_p){
 
 	vec3 val = sample(p, state);
 
-	const int kernel_size = 5;
+	const int kernel_size = 7;
 	const int nsamps = kernel_size*kernel_size;
 	const float kernel_rsqu = float(nsamps)*.25;
 	vec2 coords[nsamps];

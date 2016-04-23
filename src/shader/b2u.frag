@@ -11,6 +11,11 @@ out vec4 outputColor;
 
 vec2 invsize = 1./vec2(size);
 
+vec4 sample(in vec2 p, sampler2D s){
+	return texture(s, p*invsize);
+}
+
 void main() {
-    outputColor = .5+.5*texelFetch(x, ivec2(gl_FragCoord.xy), 0);
+	vec2 p = gl_FragCoord.xy;
+    outputColor = .5+.5*sample(p, x);
 }

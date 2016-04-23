@@ -30,6 +30,8 @@ public:
     //destroy all fbos not currently in use
     void destroy_available();
 
+    ~ofxFboAllocator();
+
 private:
     class ofxFboAllocatorBin{
     public:
@@ -76,7 +78,7 @@ public:
     ofFbo *output;
 
     ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n, ofShader *sh);
-    ~ofxBaseShaderNode();
+    virtual ~ofxBaseShaderNode();
 
     //black-box drawing function to be differentiated by subclasses
     //dummy draw() so class is not abstract
@@ -240,6 +242,8 @@ class ofApp : public ofBaseApp{
         string remote_host;
         ofxPanel gui;
 
+        string ffmpeg_path;
+
         ofxFboAllocator fbo_allocator;
         ofxShaderGraph *forward_graph;//, *integrator_graph;
 
@@ -250,11 +254,11 @@ class ofApp : public ofBaseApp{
         double frame;
 
         int disp_buf, disp_mode, disp_scale, audio_file_size, oversample_waveform, num_scales,
-            integrator, cycle_disp_mode;
+            integrator, cycle_disp_mode, num_agents;
 
         int window_width, window_height, render_width, render_height, realtime_width, realtime_height, readback_width, readback_height;
 
-        double frame_rate, scale_factor;
+        double frame_rate_limit, frame_rate_record, scale_factor;
 
         ofVec2f draw_offset;
 
@@ -284,5 +288,7 @@ class ofApp : public ofBaseApp{
         int audio_device, audio_channels, audio_buffer_size, audio_sample_rate;
         double audio_delay;
         ofSoundStream ss;
+
+        ofxFastFboReader record_reader, vwt_reader;
 };
 

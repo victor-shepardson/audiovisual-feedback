@@ -15,7 +15,7 @@
 
 	<node name="state00_grad" shader="grad">
 		<inputs>
-			<input>state00</input>
+			<input>state00_lp</input>
 		</inputs>
 	</node>
 
@@ -25,12 +25,12 @@
 			<input>state00_grad</input>
 		</inputs>
 		<defaults>
-			<float name="warp_color/0f">1</float>
-			<float name="warp_grad/0f">-0.5</float>
+			<float name="warp_color/0f">2.0</float>
+			<float name="warp_grad/0f">-1.0</float>
 		</defaults>
 	</node>
 
-	<node name="state00_warped" shader="multilateral_filter">
+<!-- 	<node name="state00_warped" shader="multilateral_filter">
 		<inputs>
 			<input>state00</input>
 			<input>state00_disp</input>
@@ -39,6 +39,13 @@
 			<float name="sigma_color/0f">1</float>
 			<float name="sigma_position/0f">0.5</float>
 		</defaults>
+	</node>
+ -->
+ 	<node name="state00_warped" shader="warp">
+		<inputs>
+			<input>state00</input>
+			<input>state00_disp</input>
+		</inputs>
 	</node>
 
 	<node name="state00_derivative" shader="post_derivative">
@@ -50,9 +57,10 @@
 			<input>agent_grad</input>
 		</inputs>
 		<defaults>
-			<float name="drive/0f">0.05</float>
-			<float name="agent_drive/0f">0.1</float>
-			<float name="warp_agent/0f">128</float>
+			<float name="drive/0f">0.01</float>
+			<float name="agent_drive/0f">0.5</float>
+			<float name="warp_agent/0f">1080</float>
+			<float name="rot/0f">.1</float>
 			<float name="time_scale/0f">1</float>
 		</defaults>
 	</node>
@@ -64,7 +72,7 @@
 		</inputs>
 		<defaults>
 			<float name="alpha/0f">.01</float>
-			<float name="beta/0f">.12</float>
+			<float name="beta/0f">.5</float>
 			<float name="epsilon/0f">.00001</float>
 			<float name="time_scale/0f">1</float>
 		</defaults>
@@ -76,8 +84,8 @@
 			<input>agent_input</input>
 		</inputs>
 		<defaults>
-			<float name="fade_time/0f">8</float>
-			<float name="blur_amt/0f">.5</float>
+			<float name="fade_time/0f">16</float>
+			<float name="blur_amt/0f">.01</float>
 		</defaults>
 	</node>
 
@@ -146,6 +154,7 @@
 	</node>
 
 	<node name="render" shader="b2u" format="rgb8">
+		<scale> .5 </scale>
 		<inputs>
 			<input>state00</input>
 		</inputs>

@@ -18,7 +18,7 @@ vec3 sample(in vec2 p){
 	return texture(state, p*invsize).rgb;
 }
 
-vec3 grad(vec2 dir){
+vec3 grad(const in vec2 dir){
 	vec2 p = gl_FragCoord.xy;
 	vec2 d = dir/length(dir);
 	vec3 above = sample(p+d);

@@ -94,6 +94,10 @@ void ofxFboAllocator::destroy_available(){
     }
 }
 
+ofxFboAllocator::~ofxFboAllocator(){
+    destroy_available();
+}
+
 uint32_t ofxBaseShaderNode::node_count = 0;
 ofxBaseShaderNode::ofxBaseShaderNode(ofxFboAllocator *a, ofFbo::Settings s, string n, ofShader * sh){
     allocator = a;
@@ -142,10 +146,10 @@ void ofxBaseShaderNode::setupParameters(){
             //skip special parameters which are handled explicitly in draw()
             if(param_name == "size" && param_type == "ivec2"){
                 hasSizeParameter = true;
-                cout<<name<<": special uniform \"size\" detected"<<endl;
+                cout<<"node: "<<name<<": special uniform \"size\" detected"<<endl;
                 continue;
             }
-            cout<<"<"<<name<<"> <"<<param_type<<"> <"<<param_name<<">"<<endl;
+            cout<<"node "<<name<<": created "<<param_type<<" param "<<param_name<<endl;
             setupParameter(param_type, param_name);
         }
         else if(keyword=="out"){
@@ -158,7 +162,7 @@ void ofxBaseShaderNode::setupParameters(){
     cout<<params<<endl;
 
     //set number of output textures based on number of "out vec4"s in shader
-    cout<<"detected "<<output_count<<" output buffers"<<endl;
+    cout<<"node "<<name<<": detected "<<output_count<<" output buffers"<<endl;
     settings.numColorbuffers = output_count;
 }
 
@@ -254,10 +258,12 @@ void ofxBaseShaderNode::requestBuffer(){
         cout<<"ofxBaseShaderNode warning: requesting new buffer without releasing old one"<<endl;
     output = allocator->allocate(settings);
     //activate all drawbuffers
-    vector<int> db;
-    for(size_t i=0; i<getNumOutputTextures(); i++)
-        db.push_back(i);
-    output->setActiveDrawBuffers(db);
+    // vector<int> db;
+    // for(size_t i=0; i<getNumOutputTextures(); i++)
+    //     db.push_back(i);
+    // output->begin();
+    // output->setActiveDrawBuffers(db);
+    // output->end();
 }
 
 //release output fbo to the allocator
@@ -458,17 +464,19 @@ void ofxBaseShaderNode::draw(){
     //loop over inputs, then over textures and bind to uniforms
     size_t tex_count = 0;
     for(auto input_node:inputs){
-        string param_name = textureInputs[tex_count];
         //loop over textures in each input
         for(size_t j=0; j<input_node->getNumOutputTextures(); j++){
-            //cout<<"node "<<name<<": setting texture input "<<tex_count<<" from texture "<<j<<" of "<<(input_node->name)<<endl;
+            string param_name = textureInputs[tex_count];
+            //cout<<"node "<<name<<": setting texture input "<<tex_count<<" ("<<param_name<<") from texture "<<j<<" of "<<(input_node->name)<<endl;
             ofTexture &tex = input_node->output->getTexture(j);
             shader->setUniformTexture(param_name, tex, tex_count);
             tex_count++;            
         }
     }
     //draw
-    output->begin();    
+    //cout<<"node "<<name<<" drawing to "<<output->getNumTextures()<<" textures"<<endl;
+    output->begin();
+    output->activateAllDrawBuffers();
     ofDrawRectangle(0,0,w,h);
     output->end();
     shader->end();
@@ -761,13 +769,18 @@ void ofApp::setupConstants()
     discard_largest_scale = false;
 
     //target video refresh rate
-    frame_rate = s.getValue("video_frame_rate", 60);
+    frame_rate_limit = s.getValue("video_rate_limit", 60);
+    frame_rate_record = s.getValue("video_rate_record", 30);
+
+    cout<<"set frame rate limit to "<<frame_rate_limit<<" fps, record video at "<<frame_rate_record<<" fps"<<endl;
 
     //buffer sizes
     int base_width = s.getValue("base_width", 1920);
     int base_height = s.getValue("base_height", 1080);
     oversample_waveform = s.getValue("oversample_waveform", 1);
     int undersample_terrain = s.getValue("undersample_terrain", 10);
+
+    ffmpeg_path = s.getValue("ffmpeg_path", "");
 
     fullscreen = false;
     if(fullscreen){
@@ -799,7 +812,9 @@ void ofApp::setupConstants()
     audio_device = s.getValue("audio_device", 3);
     audio_buffer_size = s.getValue("audio_buffer_size", 256);
 
+    num_agents = s.getValue("num_agents", 16);
 }
+
 void ofApp::setupParameters()
 {
  //set up OSC controllable parameters from params.txt (which is in Max's goofy coll format for now)
@@ -885,7 +900,8 @@ void ofApp::setupGlobals(){
 
 void ofApp::setupAudio(){
     int frames_to_keep = 48;
-    vwt = new ofxVideoWaveTerrain(frames_to_keep, audio_sample_rate, audio_delay);
+    cout<<"constructing ofxVideoWaveTerrain with "<<num_agents<<" agents"<<endl;
+    vwt = new ofxVideoWaveTerrain(num_agents, frames_to_keep, audio_sample_rate, audio_delay);
 
     ofSoundStreamListDevices();
     ss.setDeviceID(audio_device);
@@ -905,14 +921,20 @@ void ofApp::setup(){
 
     setupParameters();
 
-    cout<<params<<endl;
+    //cout<<params<<endl;
 
     //allocateFbos();
 
     //fill(agent_fbo, ofFloatColor(0,0,0,1));
 
-    initRandom(forward_graph->getFbo("state00"), 0);
-    mov(forward_graph->getFbo("state00"), forward_graph->getFbo("state00_lp"));
+    //initRandom(forward_graph->getFbo("state00"), 0);
+    //mov(forward_graph->getFbo("state00"), forward_graph->getFbo("state00_lp"));
+    fill(forward_graph->getFbo("state00"), ofFloatColor(.0));
+    fill(forward_graph->getFbo("state00_lp"), ofFloatColor(.0));
+
+
+
+    fill(forward_graph->getFbo("agent_state"), ofFloatColor(.5,.5,.5,1.));
 
     setupAudio();
 
@@ -960,17 +982,20 @@ void ofApp::fill(ofFbo &dest, ofFloatColor c, ofBlendMode mode){
 void ofApp::update(){
     sync.update();
     // if(use_camera) camera.update();
-    ofSetFrameRate(frame_rate);
+    if(recording)
+        ofSetFrameRate(frame_rate_record);
+    else
+        ofSetFrameRate(frame_rate_limit);
     ofSetWindowTitle(ofToString(ofGetFrameRate()));
     if(cycle_disp_mode && !(int(frame)%cycle_disp_mode)) disp_mode = (disp_mode+1)%display_sequence.size();
-    draw_offset = ofVec2f( ofWrap(draw_offset.x+(params.getFloat("xshift"))/frame_rate, -.5, .5),
-        ofWrap(draw_offset.y+(params.getFloat("yshift"))/frame_rate, -.5, .5)
-                          );
+    // draw_offset = ofVec2f( ofWrap(draw_offset.x+(params.getFloat("xshift"))/frame_rate_limit, -.5, .5),
+    //     ofWrap(draw_offset.y+(params.getFloat("yshift"))/frame_rate_limit, -.5, .5)
+    //                       );
 }
 
 void ofApp::draw(){
-    double cur_frame_rate = frame_rate;
-    if(realtime) cur_frame_rate = ofGetFrameRate();
+    //double cur_frame_rate = frame_rate;
+    //if(realtime) cur_frame_rate = ofGetFrameRate();
 
     //get input nodes
     ofFbo &y_fbo = forward_graph->getFbo("state00");
@@ -981,16 +1006,19 @@ void ofApp::draw(){
     int w = y_fbo.getWidth();
     int h = y_fbo.getHeight();
 
-    vwt->setAgentRate(params.getFloat("agent_rate"));
-    vwt->setMomentumTime(params.getFloat("momentum_time"));
-    vwt->setPathJitter(params.getFloat("path_jitter"));
-    vwt->setAgentCombFrequency(params.getFloat("comb_freq"));
+    vwt->setAgentRate(params.getFloat("agent_rate"), params.getFloat("agent_rate_scale"));
+    vwt->setMomentumTime(params.getFloat("agent_momentum_time"));
+    vwt->setPathJitter(params.getFloat("agent_path_jitter"));
+    vwt->setAgentCombFrequencyP(params.getFloat("comb_freq_p"), params.getFloat("comb_freq_p_scale"));
+    vwt->setAgentCombFrequencyV(params.getFloat("comb_freq_v"), params.getFloat("comb_freq_v_scale"));
+    vwt->setAgentCombFeedbackP(params.getFloat("comb_fb_p"));
+    vwt->setAgentCombFeedbackV(params.getFloat("comb_fb_v"));
     vwt->getVideoVolume()->setAspectRatio(double(w)/h);
 
     //draw agent path
     int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
 
-    fill(agent_input_fbo, ofFloatColor(0,0,0,0), OF_BLENDMODE_DISABLED);
+    fill(agent_input_fbo, ofFloatColor(.5,.5,.5,0), OF_BLENDMODE_DISABLED);
     agent_input_fbo.begin();
     vwt->draw(0, 0, aw, ah);
     agent_input_fbo.end();//InPlace();
@@ -1045,7 +1073,8 @@ void ofApp::draw(){
         ofPixels pix;
 
         // time = ofGetSystemTimeMicros();
-        render_fbo.readToPixels(pix,0);
+        //render_fbo.readToPixels(pix,0);
+        record_reader.readToPixels(render_fbo, pix);
         //display_fbo.readToPixels(pix,0);
         // cout<<"readback time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
 
@@ -1058,10 +1087,15 @@ void ofApp::draw(){
     }
 
 
-    ofFloatPixels *pix = new ofFloatPixels();
-    readback_fbo.readToPixels(*pix,0);
+    //ofFloatPixels *pix = new ofFloatPixels();
+    shared_ptr<ofFloatPixels> pix(new ofFloatPixels());
+    //readback_fbo.readToPixels(*pix,0);
+    vwt_reader.readToFloatPixels(readback_fbo, *pix); //<-- broken but causes very dope agent behavior
+    //the ofxVideoWaveTerrain is responsible for deleting pix
+    //it automatically deletes the oldest frame when it has too many
     vwt->insert_frame(pix);
 
+    //readback_fbo.draw(0,0,ww,wh);
 
     //if in render mode, compute audio in the draw loop
     //delay should be equal to frame duration
@@ -1151,9 +1185,11 @@ void ofApp::beginVideoRecord(){
     int w = render_fbo.getWidth(), h = render_fbo.getHeight();
 
     stringstream bitrate;
-    bitrate<<int(h*w*frame_rate*24/1000)<<"k";
+    bitrate<<uint64_t(h*w*frame_rate_record*24/1000)<<"k";
     cout<<bitrate.str()<<endl;
     vr.setVideoBitrate(bitrate.str());
+
+    vr.setAudioBitrate("320k");
 
    // vr.setVideoCodec("ffv1"); //black or frozen video in vlc, eats memory
     //vr.setVideoCodec("ffvhuff"); //works but memory fills quickly and crashes
@@ -1169,21 +1205,20 @@ void ofApp::beginVideoRecord(){
     //vr.setVideoCodec("vc2"); vr.setAdditionalVideoFlags("-strict -1"); //same as dirac
     //vr.setVideoCodec("libschroedinger"); //ffmpeg crashes at end, video broken
 
-    vr.setVideoCodec("mpeg4"); //flat memory use, works great, very lossy;
-    //with bit rate set as above, slow memory growth + spike at end, decent quality
+    //vr.setVideoCodec("mpeg4"); //flat memory use, works great, very lossy;
+    //with bit rate set as above, slow memory growth + spike at end, sometimes decent quality
 
-    //vr.setVideoCodec("libx264"); //video likes to freeze part way through, lossy, memory fills fairly quickly
-    //vr.setVideoCodec("libx264rgb"); //same
+    vr.setVideoCodec("libx264"); vr.setAdditionalVideoFlags("-preset ultrafast"); //this
 
     //vr.setVideoCodec("jpeg2000"); //memory fills extremely fast, hangs at end, video broken
     //vr.setVideoCodec("libopenjpeg"); //even more garbage
 
 
-    vr.setFfmpegLocation("\"C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe\"");
+    vr.setFfmpegLocation(ffmpeg_path);
 
     string fname = ofGetTimestampString();
 
-    vr.setup(fname, w, h, frame_rate, audio_sample_rate, audio_channels);
+    vr.setup(fname, w, h, frame_rate_record, audio_sample_rate, audio_channels);
 
     vr.start();
 }
@@ -1248,7 +1283,7 @@ void ofApp::beginRenderMode(){
     setResolution(render_width, render_height);
 
     //set minimal lag of audio behind video
-    vwt->setAudioDelay(1./frame_rate + 1./audio_sample_rate);
+    vwt->setAudioDelay(1./frame_rate_limit + 1./audio_sample_rate);
 
     //open a new wav file and write header
     stringstream file_name;
@@ -1317,8 +1352,11 @@ void ofApp::keyPressed(int key){
         screenshot.saveImage(fname.str());*/
     }
     if(key=='r'){
-        initRandom(forward_graph->getFbo("state00"), frame);
-        mov(forward_graph->getFbo("state00"), forward_graph->getFbo("state00_lp"));
+        //initRandom(forward_graph->getFbo("state00"), frame);
+        //mov(forward_graph->getFbo("state00"), forward_graph->getFbo("state00_lp"));
+        fill(forward_graph->getFbo("agent_state"), ofFloatColor(.5,.5,.5));
+        fill(forward_graph->getFbo("state00"), ofFloatColor(.0,.0,.0));
+        fill(forward_graph->getFbo("state00_lp"), ofFloatColor(.0,.0,.0));
         //initRandom(lp->getState(), seed+1);
         //initRandom(dyn->getState(), seed);
         vwt->scramble();
