@@ -538,6 +538,26 @@ void ofxShaderGraph::swapFbos(string a, string b){
     b_node->output = temp;
 }
 
+void ofxShaderGraph::swapFbos(){
+    for(auto p:swap){
+        swapFbos(p.first, p.second);
+    }
+}
+
+void ofxShaderGraph::initFbos(){
+    ofPushStyle();
+    ofFill();
+    for(auto p:init){
+        ofFloatColor c(p.second);
+        ofFbo & fbo = getFbo(p.first);
+        ofSetColor(c);
+        fbo.begin();
+        ofDrawRectangle(0,0,fbo.getWidth(),fbo.getHeight());
+        fbo.end();
+    }
+    ofPopStyle();
+}
+
 void ofxShaderGraph::setResolution(int w, int h){
     float ws = float(w)/fbo_settings.width;
     float hs = float(h)/fbo_settings.height;
@@ -593,7 +613,7 @@ void ofxShaderGraph::buildFromXml(ofXml x){
         params.add(aliases);
     }*/
 
-    //first pass, create all nodes and set defaults+aliases
+    //first pass, create all nodes and set defaults
     for(unsigned long i=0; i<n; i++){
         x.reset();
         x.setToChild(i);
@@ -632,6 +652,24 @@ void ofxShaderGraph::buildFromXml(ofXml x){
             else if(format=="rgb16f")
                 node_fbo_settings.internalformat = GL_RGB16F;
         }
+        //check for node to swap buffers with
+        string swap_name = x.getAttribute("swap");
+        if(swap_name != ""){
+            //don't duplicate pairs
+            if(swap.count(swap_name)==0){
+                cout<<"ofxShaderGraph: "<<name<<" swaps with "<<swap_name<<endl;
+                swap.insert(pair<string, string>(name, swap_name));
+            }else{
+                cout<<"ofxShaderGraph warning: ignoring duplicate swap of"<<name<<" with "<<swap_name<<endl;
+            }
+        }
+        //check for color to init buffer to
+        if(x.setTo("init")){
+            float val = x.getFloatValue();
+            init.insert(pair<string, float>(name, val));
+            x.setToParent();
+        }
+        //check for shader path
         string shader_name = x.getAttribute("shader");
         if(shader_name == ""){
             //shaderless node
@@ -813,6 +851,20 @@ void ofApp::setupConstants()
     audio_buffer_size = s.getValue("audio_buffer_size", 256);
 
     num_agents = s.getValue("num_agents", 16);
+
+    //sequence of display buffers
+    if(s.pushTag("display_nodes")){
+        size_t n = s.getNumTags("node");
+        for(size_t i=0;i<n;i++){
+            string node_name = s.getValue("node", "", i);
+            cout<<"adding "<<node_name<<" to display sequence"<<endl;
+            display_sequence.push_back(node_name);
+        }
+        s.popTag();
+    }
+
+    //path to graph configuration file
+    forward_graph_path = "../../src/graph/"+s.getValue("graph_path", "graph.xml");
 }
 
 void ofApp::setupParameters()
@@ -888,13 +940,6 @@ void ofApp::setupGlobals(){
     cycle_disp_mode = 0;
 
     disp_mode = 0;
-
-     //set the sequence of display modes to cycle through
-    display_sequence.push_back(AVFBDM_Color);
-    //display_sequence.push_back(AVFBDM_Monochrome);
-    display_sequence.push_back(AVFBDM_Agents);
-    //display_sequence.push_back(AVFBDM_Displacement);
-    display_sequence.push_back(AVFBDM_Filter);
   
 }
 
@@ -917,24 +962,13 @@ void ofApp::setup(){
 
     setupGL();
 
-    setupGraph(forward_graph, "../../src/graph/forward.xml");
+    setupGraph(forward_graph, forward_graph_path);
 
     setupParameters();
 
     //cout<<params<<endl;
 
-    //allocateFbos();
-
-    //fill(agent_fbo, ofFloatColor(0,0,0,1));
-
-    //initRandom(forward_graph->getFbo("state00"), 0);
-    //mov(forward_graph->getFbo("state00"), forward_graph->getFbo("state00_lp"));
-    fill(forward_graph->getFbo("state00"), ofFloatColor(.0));
-    fill(forward_graph->getFbo("state00_lp"), ofFloatColor(.0));
-
-
-
-    fill(forward_graph->getFbo("agent_state"), ofFloatColor(.5,.5,.5,1.));
+    forward_graph->initFbos();
 
     setupAudio();
 
@@ -997,14 +1031,11 @@ void ofApp::draw(){
     //double cur_frame_rate = frame_rate;
     //if(realtime) cur_frame_rate = ofGetFrameRate();
 
-    //get input nodes
-    ofFbo &y_fbo = forward_graph->getFbo("state00");
-    ofFbo &lp_fbo = forward_graph->getFbo("state00_lp");
-    ofFbo &agent_fbo = forward_graph->getFbo("agent_state");
+    //special nodes with hardcoded names
+    ofFbo &render_fbo = forward_graph->getFbo("render");
     ofFbo &agent_input_fbo = forward_graph->getFbo("agent_input");
+    int aw = agent_input_fbo.getWidth(), ah = agent_input_fbo.getHeight();
 
-    int w = y_fbo.getWidth();
-    int h = y_fbo.getHeight();
 
     vwt->setAgentRate(params.getFloat("agent_rate"), params.getFloat("agent_rate_scale"));
     vwt->setMomentumTime(params.getFloat("agent_momentum_time"));
@@ -1013,49 +1044,28 @@ void ofApp::draw(){
     vwt->setAgentCombFrequencyV(params.getFloat("comb_freq_v"), params.getFloat("comb_freq_v_scale"));
     vwt->setAgentCombFeedbackP(params.getFloat("comb_fb_p"));
     vwt->setAgentCombFeedbackV(params.getFloat("comb_fb_v"));
-    vwt->getVideoVolume()->setAspectRatio(double(w)/h);
+    vwt->getVideoVolume()->setAspectRatio(double(aw)/ah);
 
     //draw agent path
-    int aw = agent_fbo.getWidth(), ah = agent_fbo.getHeight();
-
     fill(agent_input_fbo, ofFloatColor(.5,.5,.5,0), OF_BLENDMODE_DISABLED);
     agent_input_fbo.begin();
     vwt->draw(0, 0, aw, ah);
-    agent_input_fbo.end();//InPlace();
+    agent_input_fbo.end();
 
 
     //main video process
     forward_graph->update();
 
     //feedback
-    forward_graph->swapFbos("state00_new", "state00");
-    forward_graph->swapFbos("state00_lp_new", "state00_lp");
-    forward_graph->swapFbos("agent_state_new", "agent_state");
+    forward_graph->swapFbos();
 
-    //get outputs
-    ofFbo &readback_fbo = forward_graph->getFbo("state00_readback");
-    ofFbo &display_fbo = forward_graph->getFbo("state00_display");
-
-    //branch on disp_mode and draw to screen
+    //draw to window
     int ww = ofGetWindowWidth(), wh = ofGetWindowHeight();
-    
-    switch(display_sequence[disp_mode]){
-        case AVFBDM_Color:
-            display_fbo.draw(0,0,ww,wh);
-            break;
-        case AVFBDM_Monochrome:
-            break;
-        case AVFBDM_Agents:
-            agent_fbo.draw(0,0,ww,wh);
-            break;
-        case AVFBDM_Pyramid:
-            break;
-        case AVFBDM_Displacement:
-            break;
-        case AVFBDM_Filter:
-            lp_fbo.draw(0,0,ww,wh);
-            break;
-    }
+    string display_node_name = display_sequence[disp_mode];
+    // cout<<"<"<<display_node_name<<">"<<endl;
+    ofFbo &display_fbo = forward_graph->getFbo(display_node_name);
+    display_fbo.draw(0,0,ww,wh);
+
 /*
     beginShader("torus_shift");
     setShaderParam("state", display_fbo.getTextureReference(0), 0);
@@ -1065,7 +1075,6 @@ void ofApp::draw(){
     endShader();
     //resampleToWindow(display_fbo);
 */
-    ofFbo &render_fbo = forward_graph->getFbo("render");
     if(recording){
         uint64_t time;
 
@@ -1086,11 +1095,12 @@ void ofApp::draw(){
         }
     }
 
+    ofFbo &readback_fbo = forward_graph->getFbo("readback");
 
     //ofFloatPixels *pix = new ofFloatPixels();
     shared_ptr<ofFloatPixels> pix(new ofFloatPixels());
     //readback_fbo.readToPixels(*pix,0);
-    vwt_reader.readToFloatPixels(readback_fbo, *pix); //<-- broken but causes very dope agent behavior
+    vwt_reader.readToFloatPixels(readback_fbo, *pix); 
     //the ofxVideoWaveTerrain is responsible for deleting pix
     //it automatically deletes the oldest frame when it has too many
     vwt->insert_frame(pix);
@@ -1352,20 +1362,8 @@ void ofApp::keyPressed(int key){
         screenshot.saveImage(fname.str());*/
     }
     if(key=='r'){
-        //initRandom(forward_graph->getFbo("state00"), frame);
-        //mov(forward_graph->getFbo("state00"), forward_graph->getFbo("state00_lp"));
-        fill(forward_graph->getFbo("agent_state"), ofFloatColor(.5,.5,.5));
-        fill(forward_graph->getFbo("state00"), ofFloatColor(.0,.0,.0));
-        fill(forward_graph->getFbo("state00_lp"), ofFloatColor(.0,.0,.0));
-        //initRandom(lp->getState(), seed+1);
-        //initRandom(dyn->getState(), seed);
+        forward_graph->initFbos();
         vwt->scramble();
-        //ofPushStyle();
-        //ofSetColor(0,0,0);
-        //agent_fbo.begin();
-        //ofDrawRectangle(0,0,agent_fbo.getWidth(),agent_fbo.getHeight());
-        //agent_fbo.end();
-        //ofPopStyle();
     }
     if(key==']'){
         setResolution(fbo_params.width*2, fbo_params.height*2);

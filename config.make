@@ -77,7 +77,8 @@
 # incorporated directly into the final executable application binary.
 ################################################################################
 PROJECT_LDFLAGS=-Wl,-rpath=./libs
-#PROJECT_LDFLAGS=-Wl,-rpath=./libs -pg
+#PROJECT_LDFLAGS=-Wl,-rpath=./libs -gdwarf-2
+# PROJECT_LDFLAGS=-Wl,-rpath=./libs -pg
 
 ################################################################################
 # PROJECT DEFINES
@@ -106,6 +107,7 @@ PROJECT_LDFLAGS=-Wl,-rpath=./libs
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
 #PROJECT_CFLAGS = -pg
+#PROJECT_CFLAGS = -gdwarf-2
 
 ################################################################################
 # PROJECT OPTIMIZATION CFLAGS

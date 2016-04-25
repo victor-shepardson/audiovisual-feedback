@@ -168,6 +168,9 @@ public:
     unordered_map<string, ofxBaseShaderNode*> nodes;
     unordered_set<ofxBaseShaderNode*> roots;
 
+    unordered_map<string, string> swap;
+    unordered_map<string, float> init;
+
     //set all nodes to dirty
     //call update on each root node
     void update();
@@ -179,6 +182,9 @@ public:
 
     ofFbo &getFbo(string);
     void swapFbos(string, string);
+    void swapFbos();
+
+    void initFbos();
 
     ofxShaderGraph(ofxFboAllocator *a, ofFbo::Settings s);
     ~ofxShaderGraph();
@@ -242,7 +248,7 @@ class ofApp : public ofBaseApp{
         string remote_host;
         ofxPanel gui;
 
-        string ffmpeg_path;
+        string ffmpeg_path, forward_graph_path;
 
         ofxFboAllocator fbo_allocator;
         ofxShaderGraph *forward_graph;//, *integrator_graph;
@@ -265,15 +271,7 @@ class ofApp : public ofBaseApp{
         bool drawing, //false in setup, true once draw loop begins
             realtime, use_camera, fullscreen, mute, discard_largest_scale, recording;
 
-        enum AVFBDisplayMode{
-            AVFBDM_Color,
-            AVFBDM_Monochrome,
-            AVFBDM_Agents,
-            AVFBDM_Pyramid,
-            AVFBDM_Displacement,
-            AVFBDM_Filter
-        };
-        vector<AVFBDisplayMode> display_sequence;
+        vector<string> display_sequence;
 
         ofVideoGrabber camera;
 

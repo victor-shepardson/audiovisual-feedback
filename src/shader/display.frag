@@ -25,7 +25,7 @@ vec3 sample(in vec2 p, sampler2D s){
 }
 
 void main() {
-	vec3 color = sample(gl_FragCoord.xy, state);
+	vec3 color = b2u(sample(gl_FragCoord.xy, state));
 
 	//color = sigmoid(3.*(2.*color-1.))*.5+.5;
 
@@ -53,10 +53,10 @@ void main() {
 	float magenta = dot(color, normalize(vec3(1., -1., 1.)));
 	float yellow = dot(color, normalize(vec3(1., 1., -1.)));
 
-	color = (1./3.9)*vec3(.6*green + .9*yellow + .7*cyan - .5*blue - magenta - .3*red);
+	color = (2./3.9)*vec3(.6*green + .9*yellow + .7*cyan - .5*blue - magenta - .3*red);
 
 	color = clamp(color, -1., 1.);
-	color = b2u(color);
+	//color = b2u(color);
 
     outputColor = vec4(color, 1.);
 }

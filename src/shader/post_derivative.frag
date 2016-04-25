@@ -62,14 +62,29 @@ vec3 b2u(vec3 b){
 }
 
 vec2 color2dir(vec3 c){
+	// vec3 u = b2u(c);
+	// vec3 ycm = min(u.rgr, u.gbb);
+	// vec3 rgb = u - max(ycm.rrg, ycm.bgb);
+	// vec2 h;
+	// h.x = dot(rgb,vec3(1.,-.5,-.5)) + dot(ycm,vec3(.5,-1.,.5));
+	// h.y = sqrt(3.)*.5*(dot(rgb,vec3(0.,1.,-1.)) + dot(ycm,vec3(1.,0.,-1.)));
+	// float sat = max(u.r,max(u.b,u.g)) - min(u.r,min(u.b,u.g));
+	// return h/(length(h)+.001) * sat;
 	vec3 u = b2u(c);
-	vec3 ycm = min(u.rgr, u.gbb);
-	vec3 rgb = u - max(ycm.rrg, ycm.bgb);
-	vec2 h;
-	h.x = dot(rgb,vec3(1.,-.5,-.5)) + dot(ycm,vec3(.5,-1.,.5));
-	h.y = sqrt(3.)*.5*(dot(rgb,vec3(0.,1.,-1.)) + dot(ycm,vec3(1.,0.,-1.)));
-	float sat = max(u.r,max(u.b,u.g)) - min(u.r,min(u.b,u.g));
-	return h/(length(h)+.001) * sat;
+	vec2 d;
+	d.x = c.r - (c.g+c.b)*.5;
+	d.y = sqrt(3.)*(c.g-c.b)*.5;
+	float s = max(u.r,max(u.b,u.g)) - min(u.r,min(u.b,u.g));
+	return s*d/(length(d)+.0001);
+}
+
+vec2 color2dir(vec3 c, float s_exp){
+	vec3 u = b2u(c);
+	vec2 d;
+	d.x = c.r - (c.g+c.b)*.5;
+	d.y = sqrt(3.)*(c.g-c.b)*.5;
+	float s = clamp(max(u.r,max(u.b,u.g)) - min(u.r,min(u.b,u.g)), 0., 1.);
+	return pow(s, s_exp)*d/(length(d)+.0001);
 }
 
 //use a sample function to handle different texture types+topologies
@@ -115,7 +130,7 @@ void main() {
 	vec3 val_lp = sample(p,lp);
 	vec3 val_new;
 
-	vec3 val_agents = sample(p + warp_agent*color2dir(val_lp), agents);
+	vec3 val_agents = sample(p + warp_agent*color2dir(val_lp, 2.), agents);
 
 	//if(warp_agent<=0.){
 		val_new = sample(p,new_y);
@@ -217,7 +232,7 @@ void main() {
 	d = mix(d, d/(length(d)+.001), compress);
 
 	//d += vec3(0.);
-	d += agent_drive*sigmoid(u2b(val_agents));
+	d += agent_drive*sigmoid(val_agents);
 	//d += agent_drive*sin(8./3.*PI*sigmoid(sample(p, agents)));
 
 	//some kind of color rotation

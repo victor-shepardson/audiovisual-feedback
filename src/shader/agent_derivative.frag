@@ -20,46 +20,50 @@ vec4 sample(in vec2 p, sampler2D s){
 	return texture(s, p*invsize);
 }
 
-vec3 bilateral_filter(const in vec2 p, const in float sigma_c, const in float sigma_p){
-	vec3 val = sample(p, state).rgb;
-
-	const int kernel_size = 5;
-	const int nsamps = kernel_size*kernel_size;
-	const float kernel_rsqu = float(nsamps)*.25;
-	vec2 coords[nsamps];
-
-	int idx = 0;
-	for(int i=0; i<kernel_size; i++){
-		for(int j=0; j<kernel_size; j++){
-			vec2 coord = vec2(i,j)-vec2(kernel_size/2);
-			if(dot(coord,coord)>kernel_rsqu) continue;
-			coords[idx] = coord;
-			idx++;
-		}
-	}
-
-	float s_c = .5/(sigma_c*sigma_c);
-	float s_p = .5/(sigma_p*sigma_p);
-
-	float z = 0.;
-	vec3 color = vec3(0.);
-
-	for(int i=0; i<nsamps; i++){
-		if(i>=idx) break;
-		vec2 coord = coords[i];
-		vec3 c = sample(p+coord, state).rgb;
-		vec3 d_c = c-val;
-		vec2 d_p = coords[i];
-		float w = exp(-s_c*dot(d_c, d_c) - s_p*dot(d_p, d_p));
-		color += c*w;
-		z += w;
-	}
-
-	if(z>0.)
-		color/=z;
-
-	return color;
+float sigmoid(float x){
+	return x/(1.+abs(x));
 }
+
+// vec3 bilateral_filter(const in vec2 p, const in float sigma_c, const in float sigma_p){
+// 	vec3 val = sample(p, state).rgb;
+
+// 	const int kernel_size = 5;
+// 	const int nsamps = kernel_size*kernel_size;
+// 	const float kernel_rsqu = float(nsamps)*.25;
+// 	vec2 coords[nsamps];
+
+// 	int idx = 0;
+// 	for(int i=0; i<kernel_size; i++){
+// 		for(int j=0; j<kernel_size; j++){
+// 			vec2 coord = vec2(i,j)-vec2(kernel_size/2);
+// 			if(dot(coord,coord)>kernel_rsqu) continue;
+// 			coords[idx] = coord;
+// 			idx++;
+// 		}
+// 	}
+
+// 	float s_c = .5/(sigma_c*sigma_c);
+// 	float s_p = .5/(sigma_p*sigma_p);
+
+// 	float z = 0.;
+// 	vec3 color = vec3(0.);
+
+// 	for(int i=0; i<nsamps; i++){
+// 		if(i>=idx) break;
+// 		vec2 coord = coords[i];
+// 		vec3 c = sample(p+coord, state).rgb;
+// 		vec3 d_c = c-val;
+// 		vec2 d_p = coords[i];
+// 		float w = exp(-s_c*dot(d_c, d_c) - s_p*dot(d_p, d_p));
+// 		color += c*w;
+// 		z += w;
+// 	}
+
+// 	if(z>0.)
+// 		color/=z;
+
+// 	return color;
+// }
 
 vec3 four_point_filter(const in vec2 p){
 	vec4 ret = .25*(
@@ -74,13 +78,23 @@ void main() {
 	vec2 p = gl_FragCoord.xy;
 
 	vec3 val_state = sample(p,state).rgb;
-	vec4 val_input = sample(p,agent_input);
+	vec4 val_input = sample(p,agent_input)*vec4(2.,2.,2.,1.)-vec4(1.,1.,1.,0.);
 
 	float fade = 1.-pow(2., -fade_time);
 
-	vec3 blurred = mix(val_state, four_point_filter(p), blur_amt);
+	vec3 blurred = four_point_filter(p);
 
-	vec3 faded = mix(vec3(.5), blurred, fade);
+	//blur more if this pixel is close to zero
+	//float s = max(max(abs(val_state.r), abs(val_state.g)), abs(val_state.b));
+	float s = length(val_state - dot(val_state, vec3(1./3.)));
+	// float _blur_amt = blur_amt*clamp(1.-s, 0., 1.);
+	//float _blur_amt = blur_amt*.5*(1.+sigmoid(1.-10.*s));
+	float _blur_amt = blur_amt;
+	if(s < .5) _blur_amt = .5;
+
+	blurred = mix(val_state, blurred, _blur_amt);
+
+	vec3 faded = mix(vec3(.0), blurred, fade);
 
 	vec3 new = mix(faded, val_input.rgb, val_input.a);
 

@@ -2,20 +2,30 @@
 <osc_remote_host>localhost</osc_remote_host>
 <osc_remote_port>6667</osc_remote_port>
 
-<audio_sample_rate>24000</audio_sample_rate>
-<!-- <audio_sample_rate>48000</audio_sample_rate> -->
+<!-- <audio_sample_rate>32000</audio_sample_rate> -->
+<audio_sample_rate>48000</audio_sample_rate>
+<!-- <audio_sample_rate>96000</audio_sample_rate> -->
+
 <audio_delay>0.5</audio_delay>
 <audio_device>0</audio_device>
 <audio_buffer_size>256</audio_buffer_size>
 
-<num_agents>16</num_agents>
+<num_agents>1</num_agents>
 
 <video_rate_limit>60</video_rate_limit>
-<video_rate_record>24</video_rate_record>
+<video_rate_record>6</video_rate_record>
 
 <base_width>1920</base_width>
 <base_height>1080</base_height>
-<undersample_terrain>10</undersample_terrain>
+<undersample_terrain>20</undersample_terrain>
 <oversample_waveform>1</oversample_waveform>
 
 <ffmpeg_path>"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe"</ffmpeg_path>
+
+<graph_path>forward.xml</graph_path>
+
+<display_nodes>
+	<node>state00_display_mono</node>
+	<node>state00_display_luv</node>
+	<node>agent_display_luv</node>
+</display_nodes

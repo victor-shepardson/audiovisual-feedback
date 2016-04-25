@@ -1,17 +1,23 @@
 <graph name="forward">
-	<node name="state00"></node>
+	<node name="state00" swap="state00_new">
+		<init>0</init>
+	</node>
 
-	<node name="state00_lp"></node>
+	<node name="state00_lp" swap="state00_lp_new">
+		<init>0</init>
+	</node>
 
-	<node name="agent_state"></node>
+	<node name="agent_state" swap="agent_state_new">
+		<init>0</init>
+	</node>
 
 	<node name="agent_input" format="rgba32f"></node>
 
-	<node name="agent_grad" shader="grad">
+	<!-- <node name="agent_grad" shader="grad">
 		<inputs>
 			<input>agent_state</input>
 		</inputs>
-	</node>
+	</node> -->
 
 	<node name="state00_grad" shader="grad">
 		<inputs>
@@ -19,21 +25,21 @@
 		</inputs>
 	</node>
 
-	<node name="state00_disp" shader="displacement">
+	<node name="state00_displacement" shader="displacement">
 		<inputs>
 			<input>state00</input>
 			<input>state00_grad</input>
 		</inputs>
 		<defaults>
-			<float name="warp_color/0f">2.0</float>
-			<float name="warp_grad/0f">-1.0</float>
+			<float name="warp_color/0f">1.0</float>
+			<float name="warp_grad/0f">1.0</float>
 		</defaults>
 	</node>
 
 <!-- 	<node name="state00_warped" shader="multilateral_filter">
 		<inputs>
 			<input>state00</input>
-			<input>state00_disp</input>
+			<input>state00_displacement</input>
 		</inputs>
 		<defaults>
 			<float name="sigma_color/0f">1</float>
@@ -44,7 +50,7 @@
  	<node name="state00_warped" shader="warp">
 		<inputs>
 			<input>state00</input>
-			<input>state00_disp</input>
+			<input>state00_displacement</input>
 		</inputs>
 	</node>
 
@@ -54,13 +60,13 @@
 			<input>state00_warped</input>
 			<input>state00_lp</input>
 			<input>agent_state</input>
-			<input>agent_grad</input>
+			<!-- <input>agent_grad</input> -->
 		</inputs>
 		<defaults>
-			<float name="drive/0f">0.01</float>
-			<float name="agent_drive/0f">0.5</float>
+			<float name="drive/0f">0.05</float>
+			<float name="agent_drive/0f">0.1</float>
 			<float name="warp_agent/0f">1080</float>
-			<float name="rot/0f">.1</float>
+			<float name="rot/0f">.2</float>
 			<float name="time_scale/0f">1</float>
 		</defaults>
 	</node>
@@ -109,7 +115,7 @@
 		</defaults>
 	</node>
 
-	<node name="agent_state_new" shader = "euler">
+	<node name="agent_state_new" shader="euler">
 		<inputs>
 			<input>agent_state</input>
 			<input>agent_state_derivative</input>
@@ -140,18 +146,36 @@
 		</defaults>
 	</node>
 
-	<node name="state00_readback" shader="b2u">
+	<node name="readback" shader="b2u">
 		<scale> .1 </scale>
 	 	<inputs>
 	   		<input>state00_vblur</input>
 		</inputs>
 	</node>
 
-	<node name="state00_display" shader="b2u">
+	<!-- <node name="state00_display_rgb" shader="b2u">
 		<inputs>
 			<input>state00</input>
 		</inputs>
-	</node>
+	</node> -->
+
+	<node name="state00_display_luv" shader="luv2rgb">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>	
+
+	<node name="state00_display_mono" shader="display">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>	
+
+	<node name="agent_display_luv" shader="luv2rgb">
+		<inputs>
+			<input>agent_state</input>
+		</inputs>
+	</node>		
 
 	<node name="render" shader="b2u" format="rgb8">
 		<scale> .5 </scale>
