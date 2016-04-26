@@ -130,7 +130,7 @@ PROJECT_LDFLAGS=-Wl,-rpath=./libs
 #
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
-PROJECT_OPTIMIZATION_CFLAGS_RELEASE = -O3
+PROJECT_OPTIMIZATION_CFLAGS_RELEASE = -Ofast
 # PROJECT_OPTIMIZATION_CFLAGS_DEBUG = 
 
 ################################################################################

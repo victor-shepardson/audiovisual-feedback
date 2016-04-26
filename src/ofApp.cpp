@@ -1081,10 +1081,13 @@ void ofApp::draw(){
         //ofFloatPixels pix;
         ofPixels pix;
 
+        //quick hack to record flicker;
+        //proper way would be to have conditional graph structure?
+        mov(display_fbo, render_fbo);
+
         // time = ofGetSystemTimeMicros();
         //render_fbo.readToPixels(pix,0);
         record_reader.readToPixels(render_fbo, pix);
-        //display_fbo.readToPixels(pix,0);
         // cout<<"readback time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
 
         // time = ofGetSystemTimeMicros();
@@ -1097,7 +1100,6 @@ void ofApp::draw(){
 
     ofFbo &readback_fbo = forward_graph->getFbo("readback");
 
-    //ofFloatPixels *pix = new ofFloatPixels();
     shared_ptr<ofFloatPixels> pix(new ofFloatPixels());
     //readback_fbo.readToPixels(*pix,0);
     vwt_reader.readToFloatPixels(readback_fbo, *pix); 
@@ -1105,7 +1107,18 @@ void ofApp::draw(){
     //it automatically deletes the oldest frame when it has too many
     vwt->insert_frame(pix);
 
-    //readback_fbo.draw(0,0,ww,wh);
+    //test readback
+    // ofImage(*pix).draw(0,0,ww,wh);
+    // ofFloatPixels ivv_pix;
+    // ivv_pix.allocate(ww,wh,3);
+    // for(size_t i=0;i<ww;i++){
+    //     for(size_t j=0;j<wh;j++){
+    //         double vwt_time = 1 + vwt->getElapsedTime() - vwt->getAudioDelay();
+    //         ofFloatColor c = vwt->getVideoVolume()->getColor((i+.5)/ww,(j+.5)/wh,vwt_time);
+    //         ivv_pix.setColor(i,j,c);
+    //     }
+    // }
+    // if(!disp_mode) ofImage(ivv_pix).draw(0,0,ww,wh);
 
     //if in render mode, compute audio in the draw loop
     //delay should be equal to frame duration
@@ -1371,7 +1384,7 @@ void ofApp::keyPressed(int key){
     }
     if(key=='['){
         if(fbo_params.width>1 && fbo_params.height>1)
-            setResolution(fbo_params.width*.5, fbo_params.height*.5);
+            setResolution(fbo_params.width/2, fbo_params.height/2);
         cout<<"new resolution: "<<fbo_params.width<<" by "<<fbo_params.height<<endl;
     }
     if(key=='n'){ //for testing purposes
