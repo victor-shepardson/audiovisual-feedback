@@ -22,19 +22,27 @@
 
 <ffmpeg_path>"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe"</ffmpeg_path>
 
-<graph_path>forward.xml</graph_path>
-
-<!-- <display_nodes>
-	<node>state00_display_mono</node>
-	<node>state00_display_luv</node>
-	<node>state00_display_rgb</node>
-	<node>agent_display_luv</node>
-	<node>agent_display_rgb</node>
-</display_nodes -->
+<graph_path>nmf.xml</graph_path>
 
 <display_nodes>
 	<node>state00_display_mono</node>
 	<node>state00_display_luv</node>
 	<node>state00_display_rgb</node>
-	<node>state00_lp</node>
+	<node>state00_lp_display_luv</node>
+	<node>agent_display_luv</node>
+</display_nodes>
+
+<!-- <graph_path>forward.xml</graph_path>
+
+<display_nodes>
+	<!-- <node>state_agent_display_rgb</node> -->
+	<!-- <node>lp_agent_display_rgb</node> -->
+	<!-- <node>state_1_display_rgb</node> -->
+	<node>state_1_display_luv</node>
+	<!-- <node>lp_1_display_rgb</node> -->
+	<!-- <node>state_2_display_rgb</node> -->
+	<node>state_2_display_luv</node>
+	<!-- <node>lp_2_display_rgb</node> -->
+	<node>state_3_display_luv</node>
 </display_nodes
+ -->

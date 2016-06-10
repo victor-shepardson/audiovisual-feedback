@@ -4,7 +4,7 @@
 3, comb_fb_v 0 -1 1;
 4, comb_freq_p_scale 1 0 2;
 5, comb_freq_v_scale 1 0 2;
-6, agent_rate 90 0 20000;
+6, agent_rate 30 0 20000;
 7, agent_rate_scale 1 0 2;
 8, agent_momentum_time 0 0 1;
 9, agent_path_jitter 0 0 1;

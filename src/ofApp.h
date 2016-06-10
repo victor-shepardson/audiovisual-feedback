@@ -269,7 +269,7 @@ class ofApp : public ofBaseApp{
         ofVec2f draw_offset;
 
         bool drawing, //false in setup, true once draw loop begins
-            realtime, use_camera, fullscreen, mute, discard_largest_scale, recording;
+            realtime, use_camera, fullscreen, mute, discard_largest_scale, recording, save_frame;
 
         vector<string> display_sequence;
 

@@ -526,11 +526,20 @@ ofxShaderGraph::~ofxShaderGraph(){
 
 //unsafe
 ofFbo& ofxShaderGraph::getFbo(string s){
+    if(nodes.find(s) == nodes.end()){
+        cout << "ofxShaderGraph error: node "<<s<<"does not exist"<<endl;
+    }
     ofxBaseShaderNode *node = nodes.at(s);
     return *(node->output);
 }
 
 void ofxShaderGraph::swapFbos(string a, string b){
+    if(nodes.find(a) == nodes.end()){
+        cout << "ofxShaderGraph error: node "<<a<<"does not exist"<<endl;
+    }
+    if(nodes.find(b) == nodes.end()){
+        cout << "ofxShaderGraph error: node "<<b<<"does not exist"<<endl;
+    }
     ofxBaseShaderNode *a_node = nodes.at(a);
     ofxBaseShaderNode *b_node = nodes.at(b);
     ofFbo *temp = a_node->output;
@@ -586,32 +595,6 @@ void ofxShaderGraph::buildFromXml(ofXml x){
     unsigned long n = x.getNumChildren();
 
     params.setName(x.getName());
-
-    //create alias parameters
-   /* if(x.setTo("aliases") && x.setToChild(0)){
-        aliases.setName("aliases");
-        do{
-            string type = x.getName();
-            string name = x.getAttribute("name");
-            if(name=="")
-                continue;
-            if(type=="int"){
-                const int init = x.getIntValue();
-                ofParameter<int> p(name, init);
-                p.addListener(this, &ofxShaderGraph::forwardParameter<int>);
-                aliases.add(p);
-            }
-            else if(type=="float"){
-                const float init = x.getFloatValue();
-                ofParameter<float> p(name, init);
-                p.addListener(this, &ofxShaderGraph::forwardParameter<float>);
-                aliases.add(p);
-            }else{
-                cout<<"ofxShaderGraph warning: type "<<type<<" of alias parameter "<<name<<" not supported"<<endl;
-            }
-        }while(x.setToSibling());
-        params.add(aliases);
-    }*/
 
     //first pass, create all nodes and set defaults
     for(unsigned long i=0; i<n; i++){
@@ -755,15 +738,15 @@ void ofxShaderGraph::buildFromXml(ofXml x){
             continue;
         do{
             string input_name = x.getValue();
-            try{
+            if(nodes.find(input_name) == nodes.end()){
+                cout << "ofxShaderGraph error: node "<<name<<" lists input "<<input_name<<" which does not exist"<<endl;
+            }
+            else{
                 ofxBaseShaderNode *input = nodes.at(input_name);
                 node->inputs.push_back(input);
                 input->num_dependents++;
                 root_names.erase(input_name);
                 cout<<"ofxShaderGraph: connected node "<<input_name<<" to node "<<name<<endl;
-            }
-            catch(exception e){
-                cout << "ofxShaderGraph warning: node "<<name<<" lists input "<<input_name<<" which does not exist"<<endl;
             }
         }while(x.setToSibling());
     }
@@ -931,6 +914,7 @@ void ofApp::setupGlobals(){
     realtime = true;
     use_camera = false;
     recording = false;    
+    save_frame = false;
 
     //integrator = 0;
 
@@ -966,7 +950,7 @@ void ofApp::setup(){
 
     setupParameters();
 
-    //cout<<params<<endl;
+    cout<<params<<endl;
 
     forward_graph->initFbos();
 
@@ -1075,9 +1059,7 @@ void ofApp::draw(){
     endShader();
     //resampleToWindow(display_fbo);
 */
-    if(recording){
-        uint64_t time;
-
+    if(recording || save_frame){
         //ofFloatPixels pix;
         ofPixels pix;
 
@@ -1090,11 +1072,15 @@ void ofApp::draw(){
         record_reader.readToPixels(render_fbo, pix);
         // cout<<"readback time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
 
-        // time = ofGetSystemTimeMicros();
-        bool success = vr.addFrame(pix);
-        // cout<<"frame add time: "<<ofGetSystemTimeMicros()-time<<" us"<<endl;
-        if (!success) {
-            ofLogWarning("This frame was not added!");
+        if(save_frame){
+            ofImage(pix).save("capture-"+ofGetTimestampString()+".png");
+            save_frame = false;
+        }
+        if(recording){
+            bool success = vr.addFrame(pix);
+            if (!success) {
+                ofLogWarning("This frame was not added!");
+            }
         }
     }
 
@@ -1367,12 +1353,7 @@ void ofApp::keyPressed(int key){
         cout<<"display scale: "<<disp_scale<<endl;
     }
     if(key=='s'){
-        /*ofPixels p;
-        display_fbo.readToPixels(p);
-        ofImage screenshot = ofImage(p);
-        stringstream fname;
-        fname<<"ss-"<<ofGetTimestampString()<<".png";
-        screenshot.saveImage(fname.str());*/
+        save_frame = true;
     }
     if(key=='r'){
         forward_graph->initFbos();

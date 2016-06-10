@@ -1,0 +1,199 @@
+<graph name="forward">
+	<node name="state00" swap="state00_new">
+		<init>0</init>
+	</node>
+
+	<node name="state00_lp" swap="state00_lp_new">
+		<init>0</init>
+	</node>
+
+	<node name="agent_state" swap="agent_state_new">
+		<init>0</init>
+	</node>
+
+	<node name="agent_input" format="rgba32f"></node>
+
+	<!-- <node name="agent_grad" shader="grad">
+		<inputs>
+			<input>agent_state</input>
+		</inputs>
+	</node> -->
+
+	<node name="state00_grad" shader="grad">
+		<inputs>
+			<input>state00_lp</input>
+		</inputs>
+	</node>
+
+	<node name="state00_displacement" shader="displacement">
+		<inputs>
+			<input>state00</input>
+			<input>state00_grad</input>
+		</inputs>
+		<defaults>
+			<float name="warp_color/0f">1.0</float>
+			<float name="warp_grad/0f">1.0</float>
+		</defaults>
+	</node>
+
+<!-- 	<node name="state00_warped" shader="multilateral_filter">
+		<inputs>
+			<input>state00</input>
+			<input>state00_displacement</input>
+		</inputs>
+		<defaults>
+			<float name="sigma_color/0f">1</float>
+			<float name="sigma_position/0f">0.5</float>
+		</defaults>
+	</node>
+ -->
+ 	<node name="state00_warped" shader="warp">
+		<inputs>
+			<input>state00</input>
+			<input>state00_displacement</input>
+		</inputs>
+	</node>
+
+	<node name="state00_derivative" shader="post_derivative">
+		<inputs>
+			<input>state00</input>
+			<input>state00_warped</input>
+			<input>state00_lp</input>
+			<input>agent_state</input>
+			<!-- <input>agent_grad</input> -->
+		</inputs>
+		<defaults>
+			<float name="drive/0f">0.05</float>
+			<float name="agent_drive/0f">0.1</float>
+			<float name="warp_agent/0f">1080</float>
+			<float name="rot/0f">.2</float>
+			<float name="time_scale/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="state00_lp_derivative" shader="lp_filter">
+		<inputs>
+			<input>state00</input>
+			<input>state00_lp</input>
+		</inputs>
+		<defaults>
+			<float name="alpha/0f">.01</float>
+			<float name="beta/0f">.5</float>
+			<float name="epsilon/0f">.00001</float>
+			<float name="time_scale/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="agent_state_derivative" shader="agent_derivative">
+		<inputs>
+			<input>agent_state</input>
+			<input>agent_input</input>
+		</inputs>
+		<defaults>
+			<float name="fade_time/0f">16</float>
+			<float name="blur_amt/0f">.01</float>
+		</defaults>
+	</node>
+
+	<node name="state00_new" shader="euler">
+		<inputs>
+			<input>state00</input>
+			<input>state00_derivative</input>
+		</inputs>
+		<defaults>
+			<float name="dt/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="state00_lp_new" shader="euler">
+		<inputs>
+			<input>state00_lp</input>
+			<input>state00_lp_derivative</input>
+		</inputs>
+		<defaults>
+			<float name="dt/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="agent_state_new" shader="euler">
+		<inputs>
+			<input>agent_state</input>
+			<input>agent_state_derivative</input>
+		</inputs>
+		<defaults>
+			<float name="dt/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="state00_hblur" shader="blur">
+	 	<inputs>
+	   		<input>state00</input>
+		</inputs>
+		<defaults>
+			<float name="dir/0f">10</float>
+			<float name="scale/0f">1</float>
+		</defaults>
+	</node>
+
+	<node name="state00_vblur" shader="blur">
+		<scale> .1 </scale>
+	 	<inputs>
+	   		<input>state00_hblur</input>
+		</inputs>
+		<defaults>
+			<float name="dir/1f">10</float>
+			<float name="scale/0f">.1</float>
+		</defaults>
+	</node>
+
+	<node name="readback" shader="b2u">
+		<scale> .1 </scale>
+	 	<inputs>
+	   		<input>state00_vblur</input>
+		</inputs>
+	</node>
+
+	<node name="state00_display_rgb" shader="b2u">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>
+
+	<node name="state00_display_luv" shader="luv2rgb">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>	
+
+	<node name="state00_display_mono" shader="display">
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>	
+
+	<node name="agent_display_rgb" shader="b2u">
+		<inputs>
+			<input>agent_state</input>
+		</inputs>
+	</node>		
+
+	<node name="agent_display_luv" shader="luv2rgb">
+		<inputs>
+			<input>agent_state</input>
+		</inputs>
+	</node>		
+
+	<node name="state00_lp_display_luv" shader="luv2rgb">
+		<inputs>
+			<input>state00_lp</input>
+		</inputs>
+	</node>	
+
+	<node name="render" format="rgb8">
+		<scale> .5 </scale>
+		<inputs>
+			<input>state00</input>
+		</inputs>
+	</node>
+
+</graph>
