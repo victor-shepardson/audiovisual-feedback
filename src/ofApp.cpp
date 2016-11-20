@@ -18,7 +18,7 @@ uint64_t ofxFboAllocator::keyFromFbo(ofFbo *fbo){
 }
 
 //quick and dirty hash function for fbos
-//assumes that casting width, height, number of channels, and internal format id to
+//assumes that truncating width, height, number of channels, and internal format id to
 //uint16 does not cause any collisions
 uint64_t ofxFboAllocator::keyFromDim(uint64_t w, uint64_t h, uint64_t c, uint64_t f){
     uint64_t mask = (1<<17)-1;
@@ -320,7 +320,7 @@ ofParameterGroup& ofxBaseShaderNode::getParameter(string path){
         catch(exception e){
             cout<<"warning: parameter "<<path<<" does not exist (specifically at \""<<token<<"\")"<<endl;
             break;
-        }    
+        }
     }
     return *g;
 }
@@ -379,7 +379,7 @@ void ofxBaseShaderNode::scaleResolution(float ws, float hs){
     bool b = true;
     for(auto i = inputs.begin(); i<input.end(); i++){
         ofxBaseShaderNode &node = **i;
-        b = b && 
+        b = b &&
     }
 }*/
 
@@ -470,7 +470,7 @@ void ofxBaseShaderNode::draw(){
             //cout<<"node "<<name<<": setting texture input "<<tex_count<<" ("<<param_name<<") from texture "<<j<<" of "<<(input_node->name)<<endl;
             ofTexture &tex = input_node->output->getTexture(j);
             shader->setUniformTexture(param_name, tex, tex_count);
-            tex_count++;            
+            tex_count++;
         }
     }
     //draw
@@ -588,7 +588,7 @@ void ofxShaderGraph::forwardParameter(T &val){
     //set aliased param(s) with value of alias param
 }*/
 
-void ofxShaderGraph::buildFromXml(ofXml x){
+void ofxShaderGraph::buildFromXml(ofxXmlPoco x){
     unordered_set<string> root_names;
 
     x.reset();
@@ -777,7 +777,8 @@ void ofxShaderGraph::update(){
 void ofApp::setupConstants()
 {
     ofxXmlSettings s;
-    s.loadFile(ofToDataPath("../../src/settings.xml"));
+    if(!s.loadFile(ofToDataPath("../../src/settings.xml")))
+      cout<<"warning: failed to laod settings.xml"<<endl;
 
     //OSC
     local_port = s.getValue("osc_local_port", 6666);
@@ -880,7 +881,7 @@ void ofApp::setupParameters()
 
 void ofApp::setupGraph(ofxShaderGraph *&g, string path){
     g = new ofxShaderGraph(&fbo_allocator, fbo_params);
-    ofXml x;
+    ofxXmlPoco x;
     x.load(path);
     g->buildFromXml(x);
 }
@@ -913,7 +914,7 @@ void ofApp::setupGlobals(){
 
     realtime = true;
     use_camera = false;
-    recording = false;    
+    recording = false;
     save_frame = false;
 
     //integrator = 0;
@@ -924,7 +925,7 @@ void ofApp::setupGlobals(){
     cycle_disp_mode = 0;
 
     disp_mode = 0;
-  
+
 }
 
 void ofApp::setupAudio(){
@@ -1077,7 +1078,7 @@ void ofApp::draw(){
             save_frame = false;
         }
         if(recording){
-            bool success = vr.addFrame(pix);
+            bool success = true;//vr.addFrame(pix);
             if (!success) {
                 ofLogWarning("This frame was not added!");
             }
@@ -1088,7 +1089,7 @@ void ofApp::draw(){
 
     shared_ptr<ofFloatPixels> pix(new ofFloatPixels());
     //readback_fbo.readToPixels(*pix,0);
-    vwt_reader.readToFloatPixels(readback_fbo, *pix); 
+    vwt_reader.readToFloatPixels(readback_fbo, *pix);
     //the ofxVideoWaveTerrain is responsible for deleting pix
     //it automatically deletes the oldest frame when it has too many
     vwt->insert_frame(pix);
@@ -1196,44 +1197,23 @@ void ofApp::beginVideoRecord(){
     stringstream bitrate;
     bitrate<<uint64_t(h*w*frame_rate_record*24/1000)<<"k";
     cout<<bitrate.str()<<endl;
-    vr.setVideoBitrate(bitrate.str());
+    // vr.setVideoBitrate(bitrate.str());
 
-    vr.setAudioBitrate("320k");
+    // vr.setAudioBitrate("320k");
 
-   // vr.setVideoCodec("ffv1"); //black or frozen video in vlc, eats memory
-    //vr.setVideoCodec("ffvhuff"); //works but memory fills quickly and crashes
-    //vr.setVideoCodec("huffyuv"); //works, memory still fills quickly
-    //vr.setVideoCodec("ljpeg"); //video frozen, eats memory
-    //vr.setVideoCodec("qtrle"); //eats memory, sound plays but no image
-    //vr.setVideoCodec("snow"); //eats memory, vlc can't decode
-    //vr.setVideoCodec("libwebp"); //eats memory, sound but no image in vlc
-    //vr.setVideoCodec("zlib"); //same
-    //vr.setMovFileExtension(".avi");
+    // vr.setVideoCodec("libx264"); vr.setAdditionalVideoFlags("-preset ultrafast"); //this
 
-    //vr.setVideoCodec("dirac"); vr.setAdditionalVideoFlags("-strict -1"); //ffmpeg crashes immediately
-    //vr.setVideoCodec("vc2"); vr.setAdditionalVideoFlags("-strict -1"); //same as dirac
-    //vr.setVideoCodec("libschroedinger"); //ffmpeg crashes at end, video broken
-
-    //vr.setVideoCodec("mpeg4"); //flat memory use, works great, very lossy;
-    //with bit rate set as above, slow memory growth + spike at end, sometimes decent quality
-
-    vr.setVideoCodec("libx264"); vr.setAdditionalVideoFlags("-preset ultrafast"); //this
-
-    //vr.setVideoCodec("jpeg2000"); //memory fills extremely fast, hangs at end, video broken
-    //vr.setVideoCodec("libopenjpeg"); //even more garbage
-
-
-    vr.setFfmpegLocation(ffmpeg_path);
+    // vr.setFfmpegLocation(ffmpeg_path);
 
     string fname = ofGetTimestampString();
 
-    vr.setup(fname, w, h, frame_rate_record, audio_sample_rate, audio_channels);
+    // vr.setup(fname, w, h, frame_rate_record, audio_sample_rate, audio_channels);
 
-    vr.start();
+    // vr.start();
 }
 
 void ofApp::endVideoRecord(){
-    vr.close();
+    // vr.close();
 }
 
 void ofApp::openAudioFile(string fname){
@@ -1422,7 +1402,8 @@ void ofApp::audioOut(float * output, int bufferSize, int nChannels){
     if(drawing && realtime){
         vwt->audioOut(output, bufferSize, nChannels);
         if(recording)
-            vr.addAudioSamples(output,bufferSize, nChannels);
+            // vr.addAudioSamples(output,bufferSize, nChannels);
+            false;
         if(mute)
             memset((void *)output, 0, bufferSize*nChannels*sizeof(float));
     }

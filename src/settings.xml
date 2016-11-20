@@ -2,12 +2,10 @@
 <osc_remote_host>localhost</osc_remote_host>
 <osc_remote_port>6667</osc_remote_port>
 
-<!-- <audio_sample_rate>32000</audio_sample_rate> -->
 <audio_sample_rate>48000</audio_sample_rate>
-<!-- <audio_sample_rate>96000</audio_sample_rate> -->
 
 <audio_delay>0.5</audio_delay>
-<audio_device>0</audio_device>
+<audio_device>7</audio_device>
 <audio_buffer_size>256</audio_buffer_size>
 
 <num_agents>3</num_agents>
@@ -20,7 +18,7 @@
 <undersample_terrain>10</undersample_terrain>
 <oversample_waveform>1</oversample_waveform>
 
-<ffmpeg_path>"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe"</ffmpeg_path>
+<ffmpeg_path>ffmpeg</ffmpeg_path>
 
 <graph_path>nmf.xml</graph_path>
 
@@ -31,18 +29,17 @@
 	<node>state00_lp_display_luv</node>
 	<node>agent_display_luv</node>
 </display_nodes>
-
-<!-- <graph_path>forward.xml</graph_path>
+<!--
+<graph_path>forward.xml</graph_path>
 
 <display_nodes>
-	<!-- <node>state_agent_display_rgb</node> -->
-	<!-- <node>lp_agent_display_rgb</node> -->
-	<!-- <node>state_1_display_rgb</node> -->
+	<node>state_agent_display_rgb</node>
+	<node>lp_agent_display_rgb</node>
+	<node>state_1_display_rgb</node>
 	<node>state_1_display_luv</node>
-	<!-- <node>lp_1_display_rgb</node> -->
-	<!-- <node>state_2_display_rgb</node> -->
+	<node>lp_1_display_rgb</node>
+	<node>state_2_display_rgb</node>
 	<node>state_2_display_luv</node>
-	<!-- <node>lp_2_display_rgb</node> -->
+	<node>lp_2_display_rgb</node>
 	<node>state_3_display_luv</node>
-</display_nodes
- -->
+</display_nodes> -->

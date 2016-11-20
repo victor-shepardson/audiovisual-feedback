@@ -1,6 +1,7 @@
 ofxGui
 ofxVideoWaveTerrain
-ofxVideoRecorder
 ofxFastFboReader
 ofxOsc
 ofxXmlSettings
+ofxPoco
+#ofxVideoRecorder

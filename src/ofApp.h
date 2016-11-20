@@ -5,8 +5,9 @@
 #include "ofxXmlSettings.h"
 #include "ofxOscParameterSync.h"
 #include "ofxVideoWaveTerrain.h"
-#include "ofxVideoRecorder.h"
+// #include "ofxVideoRecorder.h"
 #include "ofxFastFboReader.h"
+#include "ofxXmlPoco.h"
 
 #include <unordered_set>
 #include <unordered_map>
@@ -55,7 +56,7 @@ public:
 
     string name;
 
-    //initialized each cycle to the number of nodes depending on this one, 
+    //initialized each cycle to the number of nodes depending on this one,
     //and decremented by those nodes after drawing.
     uint32_t dependent_count;
 
@@ -176,7 +177,7 @@ public:
     void update();
 
     //construct a graph from XML
-    void buildFromXml(ofXml x);
+    void buildFromXml(ofxXmlPoco x);
 
     void setResolution(int w, int h);
 
@@ -275,7 +276,7 @@ class ofApp : public ofBaseApp{
 
         ofVideoGrabber camera;
 
-        ofxVideoRecorder vr;
+        // ofxVideoRecorder vr;
 
         ofxVideoWaveTerrain *vwt;
 
@@ -289,4 +290,3 @@ class ofApp : public ofBaseApp{
 
         ofxFastFboReader record_reader, vwt_reader;
 };
-
